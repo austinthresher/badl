@@ -1,0 +1,365 @@
+# ---
+
+# NOTES
+
+# This document assumes a little-endian system with byte-addressable memory.
+# Semantics will remain undefined for big-endian systems and addressable units
+# other than a byte until an actual need to run in one of these situations
+# arises, although changing the size of an addressable unit is likely the
+# better defined of the two. The ordering will certainly be different on a
+# big-endian system, but hopefully type definitions are expressive enough that
+# it should only require adjusting the type specifications.
+
+# ---
+
+# This is a comment.
+# Semicolons end most statements. Blocks are terminated with `end`.
+
+# The bit is the fundamental type. A variable definition is a type name
+# followed by the variable name:
+
+bit enabled;
+
+# At the start of compilation, `bit` is one of the only named types available
+# to variables. We can name new types with the `type` keyword, followed by an
+# alias name and a type specifier. Square brackets [ ] indicate a type
+# specifier. Types are composites of other types. All values reduce to raw bits.
+# The simplest type specifier is a multiple of another type:
+
+type nibb [4 bit];
+type byte [8 bit];  # or [2 nibb]
+type half [2 byte]; # or [16 bit]
+
+# This makes the name `byte` an alias for `[8 bit]`. These variables are the
+# same type:
+
+byte     count;
+[8 bit]  count1;
+
+# Numeric literals can be prefixed with `$` for hex and `%` for binary. Only
+# decimal (base 10) values may be prefixed with a `-` to be negative. Negative
+# numeric literals are shorthand for their two's complement representation (the
+# exact width depends on the expected type at that location). Literals have no
+# implicit type. This is a valid definition for a sixteen byte type:
+
+type sixteen [$10 byte];
+
+# The top level of a program contains definitions. A function definition looks
+# like a variable definition, but the name is immediately followed by an open
+# parenthesis. The type indicates the function's return type, as in C.
+# Here is a trivial function that accepts no arguments and returns a byte:
+
+byte get_count()
+    return count;
+end
+
+# The special type name `void` indicates the lack of a type. Functions can be
+# void, but not variables. A void function may not return a value, but may use
+# `return` with no value to exit the function. Variable assignments and math
+# expressions work as expected:
+
+void increase_count(byte val)
+    count = count + val;
+end
+
+# As before, named types are aliases for their type specifier:
+
+[8 bit] get_inc_count([1 byte] val)
+    [2 nibb] c = count;
+    count = count + val;
+    return c;
+end
+
+# All operators assume unsigned values, including comparison. While an
+# expression is being evaluated, its operands are promoted to the widest type
+# participating in the expression (including the target) by zero-padding the
+# most significant bits. Conversions to a narrower bit-width keep the least
+# significant bits and truncate the rest. The `signed` built-in changes this
+# behavior to sign-extend instead of zero-padding for an operand:
+
+half sub_i8(half lhs, byte rhs)
+    return lhs - signed(rhs);
+end
+
+byte rshift_logic(byte val)
+    return val >> 1;
+end
+
+byte rshift_arith(byte val)
+    [9 bit] tmp = signed(val);
+    return tmp >> 1;
+end
+
+# We can use the `as` keyword to cast, avoiding the temporary variable:
+
+byte rshift_arith1(byte val)
+    return signed(val) as [9 bit] >> 1;
+end
+
+# Two other built-ins are `bits` and `size`. They accept a type name or
+# variable name, similar to `sizeof` in C. `bits` returns the width of a type
+# or variable in bits (ignoring leading alignment). `size` returns the number
+# of addressable units (bytes) required to store a value or type. All built-ins
+# use the same syntax as a function call; the name, followed by the argument in
+# parentheses.
+
+# Type specifications can be more advanced than just a count of another type.
+# We'll call each part of a type a "component". `[8 bit]` has eight components,
+# each one a bit. `[2 nibb]` has two components, each a nibb. Types can assign
+# names to their components with dot notation:
+
+type point8 [
+    1 byte .x 
+    1 byte .y 
+];
+
+point8 as_point(byte x, byte y)
+    point8 result;
+    result.x = x;
+    result.y = y;
+    return result;
+end
+
+# This is valid, and will produce the same result as above for little-endian:
+
+point8 as_point_manual(byte x, byte y)
+    half result;
+    result = y << 8;
+    return result | x;
+end
+
+# Components are stored in their listed order, with earlier components having
+# lower memory addresses, up to the addressable unit of the target system
+# (assumed to be a byte). Within an addressable unit, components are stored
+# starting at the least-significant bit. Within a type, no padding is added by
+# default. A type can specify padding with two special type names, `pad` and
+# `align`. Here are two ways to describe a byte-sized boolean. There are subtle
+# differences between these definitions; see below.
+
+type bool    [1 bit 7 pad];
+type boolean [8 align 1 bit 8 align];
+
+# `pad` will add exactly that many bits of padding. `align` will pad to the
+# next multiple of the given number of bits. Modifications to a value with a
+# padded type are masked to ensure padding bits are zero, allowing direct
+# comparison. When `align` is the first component of a top-level type
+# specifier, it aligns the type to that boundary but is not part of the storage
+# of that type. Put another way, size([X align, 1 Y]) == size(Y) when not
+# nested in another type specifier. `pad`, on the other hand, is always included
+# in the type's storage. Note that variable definitions are aligned to the next
+# addressable unit by default:
+
+[1 bit] flag_a;
+[1 bit] flag_b;
+
+# If these flags need to live in the same addressable unit, they need to be
+# part of the same type specifier. As written this would place each variable in
+# its own addressable unit, otherwise it wouldn't be possible to take their
+# address. To align them more coarsely, write:
+
+[32 align 1 bool]    flag_c;
+[32 align 1 boolean] flag_d;
+
+# The above boolean examples behave differently in a few edge-cases:
+
+type example9   [1 bit 1 bool];    # This is a 9 bit type
+type example12  [4 bit 1 bool];    # This is a 12 bit type
+type example16a [1 bit 1 boolean]; # This is a 16 bit type
+type example16b [4 bit 1 boolean]; # This is also a 16 bit type
+
+# The `[1 bit 7 pad]` type specifier always takes exactly 8 bits, and does not
+# impose any limitations on its alignment. When used in another type specifier,
+# it simply takes up 8 bits wherever it appears. The `[8 align 1 bit 8 align]`
+# type specifier takes up a variable number of bits depending on its placement
+# in a containing type specifier; it could be as small as 8 or as large as 15.
+# Multiple leading `align`s will reduce to a single compatible value, if one
+# exists, otherwise it is an error.
+
+# Named components can be nested:
+
+type rect8 [
+    1 point8 .pos
+    1 point8 .size
+];
+
+half area(rect8 r)
+    half result = r.size.x;
+    return result * r.size.y;
+end
+
+# Components can also be accessed by indexing with square brackets:
+
+# This assumes byte is defined as [8 bit]
+bit bit_indexing(byte x, byte idx)
+    return x[idx]; # Index is in multiples of `bit`
+end
+
+# Recall that half is [2 byte]
+byte byte_indexing(half x, bit idx)
+    return x[idx]; # Index is in multiples of `byte`
+end
+
+# This gives us the language's way of defining an array:
+
+[32 rect8] boxes;
+
+# Bounds are not checked. This works through named components as well. It is an
+# error to attempt to index a type whose components are different sizes:
+
+type color8 [
+    1 byte .r
+    1 byte .g
+    1 byte .b
+];
+type color_rect [
+    1 color8 .color
+    1 rect8  .rect
+];
+
+void indexing_example()
+    rect8 r;
+    r[0] = $0201; # Ok: r.pos = ...
+    r[1] = $0403; # Ok: r.size = ...
+    color_rect cr; 
+    # cr[0] = $FF00FF; # Not ok: bits(cr.color) != bits(cr.rect)
+    cr.color[0] = $FF; # Ok: cr.color.r = ...
+    cr.color = $FF00FF; # Also ok
+end
+
+# The `len` built-in can be used on any indexable type to get the number of
+# indexable components. Think of it like C's `sizeof(buf)/sizeof(buf[0])`.
+
+# The included flow-control constructs should be familiar. The parentheses
+# around the condition are required. There is no for loop; it can be written as
+# a `while` loop.
+
+void flow_examples(bit condition, byte num)
+    if (condition) # 0 is falsey, anything else is true
+        ; # no-op statement
+    elif (num > 0)
+        goto after;
+    else
+        ;
+    end
+
+after:
+    while (condition)
+        ;
+    end
+end
+
+# The `break` and `continue` keywords may be used in the body of a `while` loop
+# with their usual semantics. `goto` labels must be function-local. There is a
+# special variant of `goto` intended for use where a switch statement or
+# computed goto is needed called `dispatch`:
+
+byte dispatch_example(byte i)
+
+    dispatch op, i;
+
+    # Errors fall through
+    return 255;
+
+op0:
+    return 0;
+op1:
+    return 1;
+op2:
+    return 2;
+op3:
+    return 3;
+end
+
+# `dispatch` takes a label prefix and a value. If a label exists with the
+# prefix and appended base 10 value (see example), the program jumps to that
+# label. If no label exists for the value the statement is a no-op and control
+# falls through to the code immediately below it. There is a limit of 256
+# labels for a single `dispatch` statement, and the index is [8 bit].
+
+# There is one additional built-in type aside from `bit`. `address` is a type
+# whose width is the size of a pointer on the target system. The address of a
+# variables or function is obtained with a `@` prefix: `@foo`. The components
+# of a type may also be addressed as long as they are guaranteed to be aligned
+# to an addressable unit: `@r.color[1]`. A reference associates a type with
+# an address. A reference looks like a variable definition, but the type is
+# prefixed with `@` and the name is followed by the `is` keyword, as shown in
+# the example below. A reference is essentially a variable whose storage
+# location is provided by the programmer. Defining a reference allocates no
+# space. Function arguments cannot be defined as references. Use an address
+# instead. References must be given an address where they are defined and this
+# address is fixed for the lifetime/scope of the reference. The contents of a
+# plain address can be assigned with the `@=` operator; the type of the
+# target is the type of the assigned value. Assignment through a reference
+# uses `=` for the same effect.  `@=` is a double indirection on a register
+# (address stored at an address).
+
+
+void by_ref_example_1(address a)
+    @rect8 r is a; # Define a reference. Now we can refer to `r`.
+    address a2 = @r; # @r == a
+    rect8 r2 = r; # Value copy
+    r.pos.x = 0; # Modify by reference
+    a @= r2; # Overwrite the value at the address, using the type of r2
+    r = r2; # Same as the previous line, through the reference.
+
+    # Incorrect, a reference is not an address:
+    # r @= r2; # This would interpret the rect8 as an address.
+    
+    # Incorrect, the literal has no type associated with it:
+    # a @= 0;
+    # Correct:
+    a @= 0 as rect8;
+
+    # Technically valid; an address is just a number, and the left hand side of
+    # `@=` is interpreted as an address. Write to a fixed memory location:
+    $8000 @= 7 as byte;
+    # Alternatively:
+    @byte some_register is $8000;
+    some_register = 7;
+
+    # Pointer math works too, but use caution:
+    a + $100 @= 0 as rect8;
+end
+
+void by_ref_example_2(rect8 r) # passed by value
+    # by_ref_example_1(r) # Incorrect: interprets the bits of r as an address
+    by_ref_example_1(@r) # Correct: pass the address of r
+    address a = @r;
+    by_ref_example_1(a); # Also correct
+    @rect8 r2 is @r; # Valid but not useful
+    by_ref_example_1(@r2) # Correct: recover the address of a reference
+    # by_ref_example_1(r2) # Incorrect for the same reason as above
+end
+
+# Function definitions may be preceded by the keyword `inline`. Unlike C, this
+# is not a suggestion. Inline functions are always expanded at their call sites:
+
+inline void add_to_count(byte val)
+    count = count + val;
+end
+
+# This expands to the exact same code as `increase_count` above
+void also_increase_count(byte val)
+    add_to_count(val);
+end
+
+# Function definitions may be nested as long as any nested functions are inline.
+# Nested functions may refer to variables that are in-scope in their containing
+# function:
+
+byte conditional_add(bit sel0, bit sel1, byte a, byte b)
+    inline byte a_or_b(bit flag)
+        if (flag == 0)
+            return a;
+        end
+        return b;
+    end
+    return a_or_b(sel0) + a_or_b(sel1);
+end
+
+# There are some limitations; inline functions cannot be recursive, cannot be
+# forward declared, and you cannot take their address.
+
+# The entrypoint of a program is the function `void main()`, which must exist.
+# Functions can be forward-declared at the top level by putting a semicolon
+# after the arguments instead of the function body: `void foo();`. 
