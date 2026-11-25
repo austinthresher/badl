@@ -2,6 +2,7 @@
 #include "str.h"
 #include "fatal.h"
 #include <ctype.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -16,52 +17,110 @@ static int sexp_left() {
     return r < 0 ? 0 : r;
 }
 
+#define SPRINT(...) do { \
+    sexp_idx += snprintf(&sexp_str[sexp_idx], sexp_left(), \
+        __VA_ARGS__); } while (0)
+
 static void ast_sexp_recur(ast_node *root) {
     if (!root) {
-        sexp_idx += snprintf(&sexp_str[sexp_idx], sexp_left(), "()");
+        SPRINT("()");
         return;
     }
     switch (root->ast_type) {
     case AST_TYPE:
-        sexp_idx += snprintf(&sexp_str[sexp_idx], sexp_left(), "(type ");
+        SPRINT("(type ");
         ast_sexp_recur(root->type.components);
-        sexp_idx += snprintf(&sexp_str[sexp_idx], sexp_left(), ")");
+        SPRINT(")");
+        break;
+
+    case AST_NAMED_TYPE:
+        SPRINT("(typename %s)", root->named_type.name);
         break;
 
     case AST_TYPE_COMPONENT:
-        sexp_idx += snprintf(&sexp_str[sexp_idx], sexp_left(), "(");
+        SPRINT("(");
         ast_sexp_recur(root->type_component.count);
-        sexp_idx += snprintf(&sexp_str[sexp_idx], sexp_left(),
-            " %s", root->type_component.type);
+        SPRINT(" %s", root->type_component.type);
         if (root->type_component.field) {
-            sexp_idx += snprintf(&sexp_str[sexp_idx], sexp_left(),
-                " .%s", root->type_component.field);
+            SPRINT(" .%s", root->type_component.field);
         }
-        sexp_idx += snprintf(&sexp_str[sexp_idx], sexp_left(), ")");
+        SPRINT(")");
         break;
 
     case AST_TYPE_DEF:
-        sexp_idx += snprintf(&sexp_str[sexp_idx], sexp_left(),
-            "(typedef %s ", root->type_def.name);
+        SPRINT("(typedef %s ", root->type_def.name);
         ast_sexp_recur(root->type_def.type);
-        sexp_idx += snprintf(&sexp_str[sexp_idx], sexp_left(), ")");
+        SPRINT(")");
         break;
 
     case AST_CONST_EXPR:
-        sexp_idx += snprintf(&sexp_str[sexp_idx], sexp_left(),
-            "%lu", root->const_expr.value);
+        SPRINT("%lu", root->const_expr.value);
+        break;
+
+    case AST_GLOBAL_DEF:
+        SPRINT("(global %s ", root->global_def.name);
+        if (root->global_def.is_const) {
+            SPRINT("const ");
+        }
+        ast_sexp_recur(root->global_def.type);
+        if (root->global_def.init) {
+            SPRINT(" ");
+            ast_sexp_recur(root->global_def.init);
+        }
+        SPRINT(")");
+        break;
+
+    case AST_LOCAL_DEF:
+        SPRINT("(local %s ", root->local_def.name);
+        if (root->local_def.is_const) {
+            SPRINT("const ");
+        }
+        ast_sexp_recur(root->local_def.type);
+        if (root->local_def.init) {
+            SPRINT(" ");
+            ast_sexp_recur(root->local_def.init);
+        }
+        SPRINT(")");
+        break;
+
+    case AST_FUNCTION_DECL:
+        SPRINT("(decl %s ", root->function_decl.name);
+        ast_sexp_recur(root->function_decl.ret_type);
+        SPRINT(" ");
+        ast_sexp_recur(root->function_decl.arg_types);
+        SPRINT(")");
+        break;
+
+    case AST_FUNCTION_DEF:
+        SPRINT("(func %s ", root->function_def.name);
+        if (root->function_def.is_inline) {
+            SPRINT("inline ");
+        }
+        ast_sexp_recur(root->function_def.ret_type);
+        SPRINT(" ");
+        ast_sexp_recur(root->function_def.args);
+        SPRINT(" ");
+        ast_sexp_recur(root->function_def.body);
+        SPRINT(")");
+        break;
+
+    case AST_BLOCK:
+        SPRINT("(block ");
+        ast_sexp_recur(root->block.statements);
+        SPRINT(")");
         break;
 
     default:
-        sexp_idx += snprintf(&sexp_str[sexp_idx], sexp_left(), "?");
+        SPRINT("?");
         break;
     }
 
     if (root->cdr) {
-        sexp_idx += snprintf(&sexp_str[sexp_idx], sexp_left(), " ");
+        SPRINT(" ");
         ast_sexp_recur(root->cdr);
     }
 }
+#undef SPRINT
 
 const char *ast_sexp(ast_node *root) {
     memset(sexp_str, 0, sizeof(sexp_str));
@@ -97,6 +156,12 @@ static ast_node *type_node(ast_node *components) {
     return node;
 }
 
+static ast_node *named_type_node(const char *name) {
+    ast_node *node = new_node(AST_NAMED_TYPE);
+    node->named_type.name = intern(name);
+    return node;
+}
+
 static ast_node *type_component_node(ast_node *count,
                                      const char *type,
                                      const char *field) {
@@ -117,6 +182,60 @@ static ast_node *type_def_node(const char *name, ast_node *type) {
 static ast_node *const_expr_node(uint64_t value) {
     ast_node *node = new_node(AST_CONST_EXPR);
     node->const_expr.value = value;
+    return node;
+}
+
+static ast_node *global_def_node(const char *name,
+                                 ast_node *type,
+                                 ast_node *init,
+                                 bool is_const) {
+    ast_node *node = new_node(AST_GLOBAL_DEF);
+    node->global_def.name = intern(name);
+    node->global_def.type = type;
+    node->global_def.init = init;
+    node->global_def.is_const = is_const;
+    return node;
+}
+
+static ast_node *local_def_node(const char *name,
+                                ast_node *type,
+                                ast_node *init,
+                                bool is_const) {
+    ast_node *node = new_node(AST_LOCAL_DEF);
+    node->local_def.name = intern(name);
+    node->local_def.type = type;
+    node->local_def.init = init;
+    node->local_def.is_const = is_const;
+    return node;
+}
+
+static ast_node *function_decl_node(const char *name,
+                                    ast_node *ret_type,
+                                    ast_node *arg_types) {
+    ast_node *node = new_node(AST_FUNCTION_DECL);
+    node->function_decl.name = intern(name);
+    node->function_decl.ret_type = ret_type;
+    node->function_decl.arg_types = arg_types;
+    return node;
+}
+
+static ast_node *function_def_node(const char *name,
+                                   ast_node *ret_type,
+                                   ast_node *args,
+                                   ast_node *body,
+                                   bool is_inline) {
+    ast_node *node = new_node(AST_FUNCTION_DEF);
+    node->function_def.name = intern(name);
+    node->function_def.ret_type = ret_type;
+    node->function_def.args = args;
+    node->function_def.body = body;
+    node->function_def.is_inline = is_inline;
+    return node;
+}
+
+static ast_node *block_node(ast_node *statements) {
+    ast_node *node = new_node(AST_BLOCK);
+    node->block.statements = statements;
     return node;
 }
 
@@ -144,6 +263,8 @@ enum tokens {
     TOK_RSHIFT, TOK_LSHIFT, TOK_DOT, TOK_AT, TOK_LITERAL, TOK_IDENT,
     TOK_TYPE, TOK_INLINE, TOK_CONST, TOK_END, TOK_GOTO, TOK_IF, TOK_WHILE,
     TOK_DISPATCH, TOK_RETURN, TOK_EOF
+    // todo: Decide if modulo operator uses "mod". If so, maybe use "and"
+    // and "or" for the logical versions to distinguish from & and |
 };
 
 static char tok_buf[128]; // Only set for identifiers, expand for strings later
@@ -160,73 +281,72 @@ static void reset_tokenizer() {
 }
 
 const char *token_string(int tok) {
-    static char buf[128];
+    static char buf[256];
     switch (tok) {
-    case TOK_LSQUARE: return "[";
-    case TOK_RSQUARE: return "]";
-    case TOK_LPAREN: return "(";
-    case TOK_RPAREN: return ")";
-    case TOK_LBRACE: return "{";
-    case TOK_RBRACE: return "}";
-    case TOK_COMMA: return ",";
-    case TOK_SEMI: return ";";
-    case TOK_COLON: return ":";
-    case TOK_PLUS: return "+";
-    case TOK_MINUS: return "-";
-    case TOK_MULT: return "*";
-    case TOK_DIV: return "/";
-    case TOK_ASSIGN: return "=";
-    case TOK_IASSIGN: return "@=";
-    case TOK_LT: return "<";
-    case TOK_GT: return ">";
-    case TOK_LTE: return "<=";
-    case TOK_GTE: return ">=";
-    case TOK_EQUAL: return "==";
-    case TOK_AND: return "&";
-    case TOK_OR: return "|";
-    case TOK_XOR: return "^";
-    case TOK_INVERT: return "~";
-    case TOK_NOT: return "!";
-    case TOK_ANDL: return "&&";
-    case TOK_ORL: return "||";
-    case TOK_RSHIFT: return ">>";
-    case TOK_LSHIFT: return "<<";
-    case TOK_DOT: return ".";
-    case TOK_AT: return "@";
-    case TOK_TYPE: return "type";
-    case TOK_INLINE: return "inline";
-    case TOK_CONST: return "const";
-    case TOK_END: return "end";
-    case TOK_GOTO: return "goto";
-    case TOK_IF: return "if";
-    case TOK_WHILE: return "while";
-    case TOK_DISPATCH: return "dispatch";
-    case TOK_RETURN: return "return";
-    case TOK_EOF: return "EOF";
+    case TOK_LSQUARE: return "'['";
+    case TOK_RSQUARE: return "']'";
+    case TOK_LPAREN: return "'('";
+    case TOK_RPAREN: return "')'";
+    case TOK_LBRACE: return "'{'";
+    case TOK_RBRACE: return "'}'";
+    case TOK_COMMA: return "','";
+    case TOK_SEMI: return "';'";
+    case TOK_COLON: return "':'";
+    case TOK_PLUS: return "'+'";
+    case TOK_MINUS: return "'-'";
+    case TOK_MULT: return "'*'";
+    case TOK_DIV: return "'/'";
+    case TOK_ASSIGN: return "'='";
+    case TOK_IASSIGN: return "'@='";
+    case TOK_LT: return "'<'";
+    case TOK_GT: return "'>'";
+    case TOK_LTE: return "'<='";
+    case TOK_GTE: return "'>='";
+    case TOK_EQUAL: return "'=='";
+    case TOK_AND: return "'&'";
+    case TOK_OR: return "'|'";
+    case TOK_XOR: return "'^'";
+    case TOK_INVERT: return "'~'";
+    case TOK_NOT: return "'!'";
+    case TOK_ANDL: return "'&&'";
+    case TOK_ORL: return "'||'";
+    case TOK_RSHIFT: return "'>>'";
+    case TOK_LSHIFT: return "'<<'";
+    case TOK_DOT: return "'.'";
+    case TOK_AT: return "'@'";
+    case TOK_TYPE: return "'type'";
+    case TOK_INLINE: return "'inline'";
+    case TOK_CONST: return "'const'";
+    case TOK_END: return "'end'";
+    case TOK_GOTO: return "'goto'";
+    case TOK_IF: return "'if'";
+    case TOK_WHILE: return "'while'";
+    case TOK_DISPATCH: return "'dispatch'";
+    case TOK_RETURN: return "'return'";
+    case TOK_EOF: return "'EOF'";
     case TOK_IDENT:
         memset(buf, 0, sizeof(buf));
-        snprintf(buf, sizeof(buf), "%s", tok_buf);
+        snprintf(buf, sizeof(buf), "identifier '%s'", tok_buf);
         return intern(buf);
     case TOK_LITERAL:
         memset(buf, 0, sizeof(buf));
-        snprintf(buf, sizeof(buf), "%lu", tok_value);
+        snprintf(buf, sizeof(buf), "literal '%lu'", tok_value);
         return intern(buf);
     default:
         memset(buf, 0, sizeof(buf));
-        snprintf(buf, sizeof(buf), "unknown %d", tok);
+        snprintf(buf, sizeof(buf), "unknown token type %d", tok);
         return intern(buf);
     }
 };
 
-
-int hex_value(char c) {
+static int hex_value(char c) {
     if (c >= '0' && c <= '9') { return c - '0'; }
     if (c >= 'a' && c <= 'f') { return c - 'a' + 10; }
     if (c >= 'A' && c <= 'F') { return c - 'A' + 10; }
     return 0;
 }
 
-static void parse_hex() {
+static void tokenize_hex() {
     tok_value = 0;
     while (1) {
         int c = nextc();
@@ -239,7 +359,7 @@ static void parse_hex() {
     }
 }
 
-static void parse_binary() {
+static void tokenize_binary() {
     tok_value = 0;
     while (1) {
         int c = nextc();
@@ -252,7 +372,7 @@ static void parse_binary() {
     }
 }
 
-static void parse_decimal() {
+static void tokenize_decimal() {
     tok_value = 0;
     while (1) {
         int c = nextc();
@@ -265,7 +385,7 @@ static void parse_decimal() {
     }
 }
 
-static void parse_identifier() {
+static void tokenize_identifier() {
     memset(tok_buf, 0, sizeof(tok_buf));
     int idx = 0;
     while (idx < sizeof(tok_buf)-1) {
@@ -284,7 +404,7 @@ static int advance_token() {
     do {
         c = nextc();
         if (c == '#') { // skip comments
-            while (c != '\n') { c = nextc(); }
+            while (c != '\n' && c != EOF) { c = nextc(); }
         }
     } while (isspace(c));
 
@@ -344,16 +464,16 @@ static int advance_token() {
     default: break;
     }
     if (c == '$') {
-        parse_hex();
+        tokenize_hex();
         return TOK_LITERAL;
     }
     if (c == '%') {
-        parse_binary();
+        tokenize_binary();
         return TOK_LITERAL;
     }
     if (isdigit(c)) {
         prevc();
-        parse_decimal();
+        tokenize_decimal();
         return TOK_LITERAL;
     }
     if (!isalpha(c) && c != '_') {
@@ -361,8 +481,8 @@ static int advance_token() {
         FATAL("unexpected character: %c (%d)\n", (char)c, c);
     }
     prevc();
-    parse_identifier();
-    
+    tokenize_identifier();
+
     // Now check for keywords before we decide this is actually an identifier
     if (strcmp(tok_buf, "end") == 0) { return TOK_END; }
     if (strcmp(tok_buf, "type") == 0) { return TOK_TYPE; }
@@ -407,10 +527,36 @@ static int peek_token() {
     return tok;
 }
 
+static bool maybe_token(int tok) {
+    if (peek_token() == tok) {
+        next_token();
+        return true;
+    }
+    return false;
+}
+
+static void expect_token_impl(int line, const char *fn, int tok) {
+    int next = next_token();
+    if (next != tok) {
+        FATAL_AT(line, fn, "expected %s, got: %s\n",
+                 token_string(tok), token_string(next));
+    }
+}
+#define expect_token(_tok) expect_token_impl(__LINE__, __func__, (_tok))
+
+static void expect_ident_impl(int line, const char *fn, const char *desc) {
+    int next = next_token();
+    if (next != TOK_IDENT) {
+        FATAL_AT(line, fn, "expected %s, got: %s\n",
+                 desc, token_string(next));
+    }
+}
+#define expect_ident(_desc) expect_ident_impl(__LINE__, __func__, (_desc))
+
+
 static ast_node *parse_const_expr() {
     // Later this will actually resolve expressions, not just literals
-    if (peek_token() == TOK_LITERAL) {
-        next_token();
+    if (maybe_token(TOK_LITERAL)) {
         return const_expr_node(tok_value);
     }
     return NULL;
@@ -421,28 +567,20 @@ static ast_node *parse_type_component() {
     if (count == NULL) {
         return NULL;
     }
-    int tok = next_token();
-    if (tok != TOK_IDENT) {
-        FATAL("expected a type, got %s\n", token_string(tok));
-    }
+    expect_ident("a type");
     const char *type_name = intern(tok_buf);
     const char *label = NULL;
-    if (peek_token() == TOK_DOT) {
-        next_token();
-        tok = next_token();
-        if (tok != TOK_IDENT) {
-            FATAL("expected a field name, got %s\n", token_string(tok));
-        }
+    if (maybe_token(TOK_DOT)) {
+        expect_ident("a field name");
         label = intern(tok_buf);
     }
     return type_component_node(count, type_name, label);
 }
 
 static ast_node *parse_type_spec() {
-    if (peek_token() != TOK_LSQUARE) {
+    if (!maybe_token(TOK_LSQUARE)) {
         return NULL;
     }
-    next_token();
     ast_node *component = parse_type_component();
     if (component == NULL) {
         FATAL("empty or missing type component\n");
@@ -451,57 +589,70 @@ static ast_node *parse_type_spec() {
     while ((component = parse_type_component())) {
         result->type.components = append(result->type.components, component);
     }
-    int tok = next_token();
-    if (tok != TOK_RSQUARE) {
-        FATAL("expected ']', got %s\n", token_string(tok));
-    }
+    expect_token(TOK_RSQUARE);
     return result;
 }
 
 static ast_node *parse_type() {
-    int tok = next_token();
-    if (tok == TOK_IDENT) {
-        // we'd actually need to check the symtab here
-        const char *type_name = intern(tok_buf);
-        // If we're getting a raw name for a type there can't be a field name.
-        // This means that 'type foo bar;` is the same as `type foo [1 bar];`.
-        // Once we have a symtab we should probably look up the definition and
-        // copy it instead, because indexing that would not work as expected.
-        ast_node *component = type_component_node(const_expr_node(1),
-                                                  type_name, NULL);
-        return type_node(component);
+    if (maybe_token(TOK_IDENT)) {
+        // we'll actually need to check the symtab at some point
+        return named_type_node(intern(tok_buf));
     }
-    undo_token(tok);
     return parse_type_spec();
 }
 
-static ast_node *parse_type_def() {
-    if (peek_token() != TOK_TYPE) {
+static ast_node *parse_type_definition() {
+    if (!maybe_token(TOK_TYPE)) {
         return NULL;
     }
-    next_token();
-    int tok = next_token();
-    if (tok != TOK_IDENT) {
-        FATAL("expected identifier, got token %s\n", token_string(tok));
-    }
+    expect_ident("a name");
     const char *name = intern(tok_buf);
     ast_node *type = parse_type();
     if (type == NULL) {
         FATAL("definition for type %s is invalid\n", name);
     }
+    expect_token(TOK_SEMI);
     return type_def_node(name, type);
 }
 
-static ast_node *parse_definition() {
-    // this needs to handle inline and const later
-    ast_node *result = parse_type_def();
-    if (result) {
-        int tok = next_token();
-        if (tok != TOK_SEMI) {
-            FATAL("expected ';', got %s\n", token_string(tok));
+static ast_node *parse_variable_definition(bool is_global) {
+    bool is_const = false;
+    ast_node *type = NULL;
+    if (maybe_token(TOK_CONST)) {
+        is_const = true;
+        type = parse_type();
+        if (type == NULL) { // const eliminates any other productions
+            FATAL("expected type after 'const'\n");
+        }
+    } else {
+        type = parse_type();
+        if (type == NULL) {
+            return NULL;
         }
     }
-    return result;
+    expect_ident("a variable name");
+    const char *name = intern(tok_buf);
+
+    // todo: init value
+
+    expect_token(TOK_SEMI);
+    if (is_global) {
+        return global_def_node(name, type, NULL, is_const);
+    }
+    return local_def_node(name, type, NULL, is_const);
+}
+
+static ast_node *parse_definition(bool is_global) {
+    // this needs to handle inline and const later
+    ast_node *result = NULL;
+    if (is_global) {
+        result = parse_type_definition();
+        if (result) { return result; }
+    }
+    result = parse_variable_definition(is_global);
+    if (result) { return result; }
+
+    return NULL; 
 }
 
 static ast_node *parse_top_level() {
@@ -510,16 +661,17 @@ static ast_node *parse_top_level() {
         if (peek_token() == TOK_EOF) { return result; }
         ast_node *next = NULL;
 
-        next = parse_definition();
+        next = parse_definition(true);
 
         if (next == NULL) {
-            FATAL("unexpected token %d %s\n", peek_token(), tok_buf);
+            FATAL("unexpected token: %s\n", token_string(peek_token()));
         } else {
             result = append(result, next);
         }
     }
 }
 
+// fixme: this name is now confusing with the internal naming I've been using
 ast_node *parse_string(arena *a, const char *text) {
     ar = a;
     in_buf = text;

@@ -9,10 +9,17 @@
 arena *ar = NULL;
 int passed = 0;
 int total = 0;
+int verbosity = 0;
 
 void run_tests();
 
 int main(int argc, const char *argv[]) {
+    if (argc > 1) {
+        const char *arg = argv[1];
+        while (*arg) {
+            if (*arg++ == 'v') { verbosity++; }
+        }
+    }
     ar = arena_new(0x8000);
     run_tests();
     printf("%d / %d passed\n", passed, total);
@@ -21,11 +28,14 @@ int main(int argc, const char *argv[]) {
 
 void test(const char *bdl, const char *sexp) {
     total++;
-//    arena_reset(ar);
+    arena_reset(ar);
     ast_node *node = parse_string(ar, bdl);
     const char *result = ast_sexp(node);
     if (strcmp(result, sexp) == 0) {
         passed++;
+        if (verbosity > 0) {
+            printf("%3d pass: %s -> %s\n", total, bdl, result);
+        }
     } else {
         fprintf(stderr, "--- test %d failed ---\n%s\nresult: %s\nexpect: %s\n",
             total, bdl, result, sexp);
@@ -33,10 +43,19 @@ void test(const char *bdl, const char *sexp) {
 }
 
 void run_tests() {
-    test("", "()");
+    test("# a comment", "()");
 
     test("type byte [8 bit];",
         "(typedef byte (type (8 bit)))");
+
+    test("type another_bit bit;",
+        "(typedef another_bit (typename bit))");
+
+    test("type byte [%1000 bit];",
+        "(typedef byte (type (8 bit)))");
+
+    test("type half [$10 bit];",
+        "(typedef half (type (16 bit)))");
 
     test("type bar [1 bit 2 bit 3 bit 4 bit];",
         "(typedef bar (type (1 bit) (2 bit) (3 bit) (4 bit)))");
@@ -47,5 +66,8 @@ void run_tests() {
     test("type nibb [4 bit]; type byte [2 nibb];",
         "(typedef nibb (type (4 bit))) "
         "(typedef byte (type (2 nibb)))");
+
+    test("bit enabled;",
+        "(global enabled (typename bit))");
 }
 
