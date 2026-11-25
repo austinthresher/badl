@@ -66,7 +66,7 @@ enum node_type {
     AST_LITERAL,
     AST_GLOBAL_DEF,
     AST_LOCAL_DEF, // also used for function args
-    AST_FUNCTION_DECL,
+    AST_FORWARD_DECL,
     AST_FUNCTION_DEF,
     AST_BLOCK,
 };
@@ -111,11 +111,11 @@ typedef struct ast_node {
             bool is_const;
         } local_def;
 
-        struct { // AST_FUNCTION_DECL
+        struct { // AST_FORWARD_DECL
             const char *name;
             struct ast_node *ret_type;
             struct ast_node *args;
-        } function_decl;
+        } forward_decl;
 
         struct { // AST_FUNCTION_DEF
             const char *name;

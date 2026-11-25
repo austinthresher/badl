@@ -95,5 +95,24 @@ void run_tests() {
         "(decl foo (typename void)"
         " (local a (typename bit)) (local b (typename bit)))");
 
+    test("void foo() end",
+        "(func foo (typename void) () (block ()))");
+
+    test("void foo() bit bar; end",
+        "(func foo (typename void) ()"
+        " (block (local bar (typename bit))))");
+
+    test("void foo() bit bar = 0; end",
+        "(func foo (typename void) ()"
+        " (block (local bar (typename bit) 0)))");
+
+    test("void foo() bit a; bit b; end",
+        "(func foo (typename void) () (block"
+        " (local a (typename bit))"
+        " (local b (typename bit))))");
+
+    test("void foo() inline void bar() end end",
+        "(func foo (typename void) () (block"
+        " (func bar inline (typename void) () (block ()))))");
 }
 

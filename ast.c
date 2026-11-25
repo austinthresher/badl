@@ -83,11 +83,11 @@ static void ast_sexp_recur(ast_node *root) {
         SPRINT(")");
         break;
 
-    case AST_FUNCTION_DECL:
-        SPRINT("(decl %s ", root->function_decl.name);
-        ast_sexp_recur(root->function_decl.ret_type);
+    case AST_FORWARD_DECL:
+        SPRINT("(decl %s ", root->forward_decl.name);
+        ast_sexp_recur(root->forward_decl.ret_type);
         SPRINT(" ");
-        ast_sexp_recur(root->function_decl.args);
+        ast_sexp_recur(root->forward_decl.args);
         SPRINT(")");
         break;
 
@@ -209,13 +209,13 @@ static ast_node *local_def_node(const char *name,
     return node;
 }
 
-static ast_node *function_decl_node(const char *name,
+static ast_node *forward_decl_node(const char *name,
                                     ast_node *ret_type,
                                     ast_node *args) {
-    ast_node *node = new_node(AST_FUNCTION_DECL);
-    node->function_decl.name = intern(name);
-    node->function_decl.ret_type = ret_type;
-    node->function_decl.args = args;
+    ast_node *node = new_node(AST_FORWARD_DECL);
+    node->forward_decl.name = intern(name);
+    node->forward_decl.ret_type = ret_type;
+    node->forward_decl.args = args;
     return node;
 }
 
@@ -351,7 +351,7 @@ static void tokenize_hex() {
     while (1) {
         int c = nextc();
         if (!isxdigit(c)) { // todo: error on no digits
-            prevc();
+            if (c != EOF) { prevc(); }
             return;
         }
         tok_value *= 16;
@@ -364,7 +364,7 @@ static void tokenize_binary() {
     while (1) {
         int c = nextc();
         if (c != '0' && c != '1') { // todo: error on no digits
-            prevc();
+            if (c != EOF) { prevc(); }
             return;
         }
         tok_value *= 2;
@@ -377,7 +377,7 @@ static void tokenize_decimal() {
     while (1) {
         int c = nextc();
         if (!isdigit(c)) {
-            prevc();
+            if (c != EOF) { prevc(); }
             return;
         }
         tok_value *= 10;
@@ -391,7 +391,9 @@ static void tokenize_identifier() {
     while (idx < sizeof(tok_buf)-1) {
         int c = nextc();
         if (!isalnum(c) && c != '_') {
-            prevc();
+            if (c != EOF) {
+                prevc();
+            }
             return;
         }
         tok_buf[idx++] = c;
@@ -643,6 +645,26 @@ static ast_node *parse_args() {
     }
 }
 
+
+static ast_node *parse_var_or_func_def(bool is_global);
+
+static ast_node *parse_statement() {
+    ast_node *stmt = parse_var_or_func_def(false);
+    if (stmt) { return stmt; }
+    // todo: assignments, loops, conditionals, etc.
+    return NULL;
+}
+
+// Just collect statements until we can't; doesn't check for `end` or anything
+static ast_node *parse_block() {
+    ast_node *b = block_node(NULL);
+    while (1) {
+        ast_node *stmt = parse_statement();
+        if (!stmt) { return b; }
+        b->block.statements = append(b->block.statements, stmt);
+    }
+}
+
 static ast_node *parse_var_or_func_def(bool is_global) {
     bool is_const = false;
     bool is_inline = false;
@@ -676,18 +698,26 @@ static ast_node *parse_var_or_func_def(bool is_global) {
             FATAL("expected valid init expression for '%s'", name);
         }
     } else if (maybe_token(TOK_LPAREN)) { // Parens?
+        if (!is_global && !is_inline) {
+            FATAL("nested function '%s' must be inline\n", name);
+        }
         init_or_args = parse_args();
         expect_token(TOK_RPAREN);
         if (maybe_token(TOK_SEMI)) {
+            if (!is_global) {
+                FATAL("can't forward declare nested function '%s'\n", name);
+            }
             if (is_inline) {
                 FATAL("can't forward declare inline function '%s'\n", name);
             }
-            return function_decl_node(name, type, init_or_args);
+            return forward_decl_node(name, type, init_or_args);
         }
-        FATAL("todo: function body");
+        ast_node *body = parse_block();
+        expect_token(TOK_END);
+        return function_def_node(name, type, init_or_args, body, is_inline);
     }
 
-variable:
+    // Not a function
     expect_token(TOK_SEMI);
     if (is_global) {
         return global_def_node(name, type, init_or_args, is_const);
@@ -708,7 +738,7 @@ static ast_node *parse_definition(bool is_global) {
 static ast_node *parse_top_level() {
     ast_node *result = NULL;
     while (1) {
-        if (peek_token() == TOK_EOF) { return result; }
+        if (maybe_token(TOK_EOF)) { return result; }
         ast_node *next = NULL;
 
         next = parse_definition(true);
