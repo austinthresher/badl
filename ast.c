@@ -645,13 +645,20 @@ static ast_node *parse_args() {
     }
 }
 
-
 static ast_node *parse_var_or_func_def(bool is_global);
 
 static ast_node *parse_statement() {
     ast_node *stmt = parse_var_or_func_def(false);
     if (stmt) { return stmt; }
-    // todo: assignments, loops, conditionals, etc.
+    // todo:
+    // while
+    // if
+    // return
+    // goto
+    // break
+    // continue
+    // assignment
+    // standalone expression (function call, etc)
     return NULL;
 }
 
@@ -739,15 +746,12 @@ static ast_node *parse_top_level() {
     ast_node *result = NULL;
     while (1) {
         if (maybe_token(TOK_EOF)) { return result; }
-        ast_node *next = NULL;
-
-        next = parse_definition(true);
-
+        // later some sort of include probably goes here too
+        ast_node *next = parse_definition(true);
         if (next == NULL) {
             FATAL("unexpected token: %s\n", token_string(peek_token()));
-        } else {
-            result = append(result, next);
         }
+        result = append(result, next);
     }
 }
 

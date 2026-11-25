@@ -69,6 +69,8 @@ enum node_type {
     AST_FORWARD_DECL,
     AST_FUNCTION_DEF,
     AST_BLOCK,
+    AST_BREAK,
+    AST_CONTINUE,
 };
 
 typedef struct ast_node {
@@ -128,6 +130,9 @@ typedef struct ast_node {
         struct { // AST_BLOCK
             struct ast_node *statements;
         } block;
+
+        // AST_BREAK and AST_CONTINUE don't need any fields
+
 
     };
 
