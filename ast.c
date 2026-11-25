@@ -268,19 +268,29 @@ enum tokens {
 };
 
 static char tok_buf[128]; // Only set for identifiers, expand for strings later
-uint64_t tok_value = 0; // Only set for literals
+static uint64_t token_value = 0; // Only set for literals
 static int stashed_token = -1;
-uint64_t stashed_value = 0;
+static uint64_t stashed_value = 0;
 static char stashed_buf[sizeof(tok_buf)];
 
-static void reset_tokenizer() {
+uint64_t tok_value() { return token_value; }
+const char *tok_identifier() { return tok_buf; }
+
+void tok_reset() {
     memset(tok_buf, 0, sizeof(tok_buf));
     memset(stashed_buf, 0, sizeof(stashed_buf));
     stashed_token = -1;
-    tok_value = stashed_value = 0;
+    token_value = stashed_value = 0;
 }
 
-const char *token_string(int tok) {
+void tok_init(const char *text) {
+    in_buf = text;
+    in_len = strlen(text);
+    in_idx = 0;
+    tok_reset();
+}
+
+const char *tok_name(int tok) {
     static char buf[256];
     switch (tok) {
     case TOK_LSQUARE: return "'['";
@@ -330,7 +340,7 @@ const char *token_string(int tok) {
         return intern(buf);
     case TOK_LITERAL:
         memset(buf, 0, sizeof(buf));
-        snprintf(buf, sizeof(buf), "literal '%lu'", tok_value);
+        snprintf(buf, sizeof(buf), "literal '%lu'", token_value);
         return intern(buf);
     default:
         memset(buf, 0, sizeof(buf));
@@ -347,41 +357,41 @@ static int hex_value(char c) {
 }
 
 static void tokenize_hex() {
-    tok_value = 0;
+    token_value = 0;
     while (1) {
         int c = nextc();
         if (!isxdigit(c)) { // todo: error on no digits
             if (c != EOF) { prevc(); }
             return;
         }
-        tok_value *= 16;
-        tok_value += hex_value(c);
+        token_value *= 16;
+        token_value += hex_value(c);
     }
 }
 
 static void tokenize_binary() {
-    tok_value = 0;
+    token_value = 0;
     while (1) {
         int c = nextc();
         if (c != '0' && c != '1') { // todo: error on no digits
             if (c != EOF) { prevc(); }
             return;
         }
-        tok_value *= 2;
-        tok_value += c - '0';
+        token_value *= 2;
+        token_value += c - '0';
     }
 }
 
 static void tokenize_decimal() {
-    tok_value = 0;
+    token_value = 0;
     while (1) {
         int c = nextc();
         if (!isdigit(c)) {
             if (c != EOF) { prevc(); }
             return;
         }
-        tok_value *= 10;
-        tok_value += c - '0';
+        token_value *= 10;
+        token_value += c - '0';
     }
 }
 
@@ -500,10 +510,10 @@ static int advance_token() {
     return TOK_IDENT;
 }
 
-static int next_token() {
+int tok_next() {
     if (stashed_token != -1) {
         int tok = stashed_token;
-        tok_value = stashed_value;
+        token_value = stashed_value;
         memcpy(tok_buf, stashed_buf, sizeof(tok_buf));
         stashed_token = -1;
         return tok;
@@ -511,54 +521,60 @@ static int next_token() {
     return advance_token();
 }
 
-static void undo_token(int tok) {
+void tok_undo(int tok) {
     if (stashed_token != -1) {
         FATAL("undo would overwrite stashed token %s (%d) with %s (%d)\n",
-              token_string(stashed_token), stashed_token,
-              token_string(tok), tok);
+              tok_name(stashed_token), stashed_token,
+              tok_name(tok), tok);
     }
     stashed_token = tok;
     memcpy(stashed_buf, tok_buf, sizeof(stashed_buf));
-    stashed_value = tok_value;
+    stashed_value = token_value;
 }
 
-// I might need to temporarily grab stashed_token and co if this errors
-static int peek_token() {
-    int tok = next_token();
-    undo_token(tok);
+int tok_peek() {
+    int tok = tok_next();
+    tok_undo(tok);
     return tok;
 }
 
-static bool maybe_token(int tok) {
-    if (peek_token() == tok) {
-        next_token();
+static bool tok_maybe(int tok) {
+    if (tok_peek() == tok) {
+        tok_next();
         return true;
     }
     return false;
 }
 
-static void expect_token_impl(int line, const char *fn, int tok) {
-    int next = next_token();
+static void tok_expect_impl(const char *file,
+                            int line,
+                            const char *fn,
+                            int tok) {
+    int next = tok_next();
     if (next != tok) {
-        FATAL_AT(line, fn, "expected %s, got: %s\n",
-                 token_string(tok), token_string(next));
+        FATAL_AT(file, line, fn, "expected %s, got: %s\n",
+                 tok_name(tok), tok_name(next));
     }
 }
-#define expect_token(_tok) expect_token_impl(__LINE__, __func__, (_tok))
+#define tok_expect(_tok) tok_expect_impl(__FILE__, __LINE__, __func__, (_tok))
 
-static void expect_ident_impl(int line, const char *fn, const char *desc) {
-    int next = next_token();
+static void tok_expect_ident_impl(const char *file,
+                                  int line,
+                                  const char *fn,
+                                  const char *desc) {
+    int next = tok_next();
     if (next != TOK_IDENT) {
-        FATAL_AT(line, fn, "expected %s, got: %s\n",
-                 desc, token_string(next));
+        FATAL_AT(file, line, fn, "expected %s, got: %s\n",
+                 desc, tok_name(next));
     }
 }
-#define expect_ident(_desc) expect_ident_impl(__LINE__, __func__, (_desc))
+#define tok_expect_ident(_desc) \
+    tok_expect_ident_impl(__FILE__, __LINE__, __func__, (_desc))
 
 
 static ast_node *parse_literal() {
-    if (maybe_token(TOK_LITERAL)) {
-        return literal_node(tok_value);
+    if (tok_maybe(TOK_LITERAL)) {
+        return literal_node(tok_value());
     }
     return NULL;
 }
@@ -577,18 +593,18 @@ static ast_node *parse_type_component() {
     if (count == NULL) {
         return NULL;
     }
-    expect_ident("a type");
-    const char *type_name = intern(tok_buf);
+    tok_expect_ident("a type");
+    const char *type_name = intern(tok_identifier());
     const char *label = NULL;
-    if (maybe_token(TOK_DOT)) {
-        expect_ident("a field name");
-        label = intern(tok_buf);
+    if (tok_maybe(TOK_DOT)) {
+        tok_expect_ident("a field name");
+        label = intern(tok_identifier());
     }
     return type_component_node(count, type_name, label);
 }
 
 static ast_node *parse_type_spec() {
-    if (!maybe_token(TOK_LSQUARE)) {
+    if (!tok_maybe(TOK_LSQUARE)) {
         return NULL;
     }
     ast_node *component = parse_type_component();
@@ -599,37 +615,37 @@ static ast_node *parse_type_spec() {
     while ((component = parse_type_component())) {
         result->type.components = append(result->type.components, component);
     }
-    expect_token(TOK_RSQUARE);
+    tok_expect(TOK_RSQUARE);
     return result;
 }
 
 static ast_node *parse_type() {
-    if (maybe_token(TOK_IDENT)) {
+    if (tok_maybe(TOK_IDENT)) {
         // we'll actually need to check the symtab at some point
-        return named_type_node(intern(tok_buf));
+        return named_type_node(intern(tok_identifier()));
     }
     return parse_type_spec();
 }
 
 static ast_node *parse_type_definition() {
-    if (!maybe_token(TOK_TYPE)) {
+    if (!tok_maybe(TOK_TYPE)) {
         return NULL;
     }
-    expect_ident("a name");
-    const char *name = intern(tok_buf);
+    tok_expect_ident("a name");
+    const char *name = intern(tok_identifier());
     ast_node *type = parse_type();
     if (type == NULL) {
         FATAL("definition for type %s is invalid\n", name);
     }
-    expect_token(TOK_SEMI);
+    tok_expect(TOK_SEMI);
     return type_def_node(name, type);
 }
 
 static ast_node *parse_arg() {
     ast_node *type = parse_type();
     if (type == NULL) { return NULL; }
-    expect_ident("an argument name");
-    const char *name = intern(tok_buf);
+    tok_expect_ident("an argument name");
+    const char *name = intern(tok_identifier());
     return local_def_node(name, type, NULL, false);
 }
 
@@ -639,7 +655,7 @@ static ast_node *parse_args() {
         ast_node *arg = parse_arg();
         if (!arg) { return head; }
         head = append(head, arg);
-        if (!maybe_token(TOK_COMMA)) {
+        if (!tok_maybe(TOK_COMMA)) {
             return head;
         }
     }
@@ -675,9 +691,9 @@ static ast_node *parse_block() {
 static ast_node *parse_var_or_func_def(bool is_global) {
     bool is_const = false;
     bool is_inline = false;
-    if (maybe_token(TOK_CONST)) {
+    if (tok_maybe(TOK_CONST)) {
         is_const = true;
-    } else if (maybe_token(TOK_INLINE)) {
+    } else if (tok_maybe(TOK_INLINE)) {
         is_inline = true;
     }
     ast_node *type = parse_type();
@@ -691,26 +707,26 @@ static ast_node *parse_var_or_func_def(bool is_global) {
         return NULL;
     }
 
-    expect_ident("a name");
-    const char *name = intern(tok_buf);
+    tok_expect_ident("a name");
+    const char *name = intern(tok_identifier());
 
     // Now, is this a variable, a foward declaration, or a function?
 
     // Is there an initial value assignment?
     ast_node *init_or_args = NULL;
-    if (maybe_token(TOK_ASSIGN)) { // must be a variable, then
+    if (tok_maybe(TOK_ASSIGN)) { // must be a variable, then
         // local const can refer to runtime values, global can't
         init_or_args = parse_expr(is_global && is_const);
         if (init_or_args == NULL) {
             FATAL("expected valid init expression for '%s'", name);
         }
-    } else if (maybe_token(TOK_LPAREN)) { // Parens?
+    } else if (tok_maybe(TOK_LPAREN)) { // Parens?
         if (!is_global && !is_inline) {
             FATAL("nested function '%s' must be inline\n", name);
         }
         init_or_args = parse_args();
-        expect_token(TOK_RPAREN);
-        if (maybe_token(TOK_SEMI)) {
+        tok_expect(TOK_RPAREN);
+        if (tok_maybe(TOK_SEMI)) {
             if (!is_global) {
                 FATAL("can't forward declare nested function '%s'\n", name);
             }
@@ -720,12 +736,12 @@ static ast_node *parse_var_or_func_def(bool is_global) {
             return forward_decl_node(name, type, init_or_args);
         }
         ast_node *body = parse_block();
-        expect_token(TOK_END);
+        tok_expect(TOK_END);
         return function_def_node(name, type, init_or_args, body, is_inline);
     }
 
     // Not a function
-    expect_token(TOK_SEMI);
+    tok_expect(TOK_SEMI);
     if (is_global) {
         return global_def_node(name, type, init_or_args, is_const);
     }
@@ -745,11 +761,11 @@ static ast_node *parse_definition(bool is_global) {
 static ast_node *parse_top_level() {
     ast_node *result = NULL;
     while (1) {
-        if (maybe_token(TOK_EOF)) { return result; }
+        if (tok_maybe(TOK_EOF)) { return result; }
         // later some sort of include probably goes here too
         ast_node *next = parse_definition(true);
         if (next == NULL) {
-            FATAL("unexpected token: %s\n", token_string(peek_token()));
+            FATAL("unexpected token: %s\n", tok_name(tok_peek()));
         }
         result = append(result, next);
     }
@@ -758,10 +774,7 @@ static ast_node *parse_top_level() {
 // fixme: this name is now confusing with the internal naming I've been using
 ast_node *parse_string(arena *a, const char *text) {
     ar = a;
-    in_buf = text;
-    in_len = strlen(text);
-    in_idx = 0;
-    reset_tokenizer();
+    tok_init(text);
     return parse_top_level();
 }
 
