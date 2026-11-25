@@ -13,6 +13,7 @@ static interned_str *string_table = NULL;
 static arena *string_arena = NULL;
 
 const char *intern(const char *str) {
+    if (!str) { return NULL; }
     if (!string_arena) {
         string_arena = arena_new(4096);
     }

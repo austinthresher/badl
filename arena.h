@@ -3,12 +3,7 @@
 
 #include <stdlib.h>
 
-typedef struct arena {
-    void *base;
-    size_t used;
-    size_t size;
-    struct arena *next;
-} arena;
+typedef struct arena arena;
 
 arena *arena_new(size_t size);
 void arena_free(arena *a);

@@ -6,6 +6,13 @@
 
 #include "fatal.h"
 
+typedef struct arena {
+    void *base;
+    size_t used;
+    size_t size;
+    struct arena *next;
+} arena;
+
 arena *arena_new(size_t size) {
     arena *a = (arena *)malloc(sizeof(arena));
     a->base = malloc(size);
