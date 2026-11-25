@@ -33,6 +33,8 @@ void test(const char *bdl, const char *sexp) {
 }
 
 void run_tests() {
+    test("", "()");
+
     test("type byte [8 bit];",
         "(typedef byte (type (8 bit)))");
 
