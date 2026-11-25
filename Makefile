@@ -1,8 +1,8 @@
 CC         := gcc
 CFLAGS     := -Wall
-TARGET     := tascomp
-SRCS       := main.c arena.c
-INCS       := arena.h
+TARGET     := badlc
+SRCS       := main.c arena.c str.c
+INCS       := arena.h str.h
 
 all: $(TARGET)
 
