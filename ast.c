@@ -53,8 +53,8 @@ static void ast_sexp_recur(ast_node *root) {
         SPRINT(")");
         break;
 
-    case AST_CONST_EXPR:
-        SPRINT("%lu", root->const_expr.value);
+    case AST_LITERAL:
+        SPRINT("%lu", root->literal.value);
         break;
 
     case AST_GLOBAL_DEF:
@@ -87,7 +87,7 @@ static void ast_sexp_recur(ast_node *root) {
         SPRINT("(decl %s ", root->function_decl.name);
         ast_sexp_recur(root->function_decl.ret_type);
         SPRINT(" ");
-        ast_sexp_recur(root->function_decl.arg_types);
+        ast_sexp_recur(root->function_decl.args);
         SPRINT(")");
         break;
 
@@ -179,9 +179,9 @@ static ast_node *type_def_node(const char *name, ast_node *type) {
     return node;
 }
 
-static ast_node *const_expr_node(uint64_t value) {
-    ast_node *node = new_node(AST_CONST_EXPR);
-    node->const_expr.value = value;
+static ast_node *literal_node(uint64_t value) {
+    ast_node *node = new_node(AST_LITERAL);
+    node->literal.value = value;
     return node;
 }
 
@@ -211,11 +211,11 @@ static ast_node *local_def_node(const char *name,
 
 static ast_node *function_decl_node(const char *name,
                                     ast_node *ret_type,
-                                    ast_node *arg_types) {
+                                    ast_node *args) {
     ast_node *node = new_node(AST_FUNCTION_DECL);
     node->function_decl.name = intern(name);
     node->function_decl.ret_type = ret_type;
-    node->function_decl.arg_types = arg_types;
+    node->function_decl.args = args;
     return node;
 }
 
@@ -554,16 +554,24 @@ static void expect_ident_impl(int line, const char *fn, const char *desc) {
 #define expect_ident(_desc) expect_ident_impl(__LINE__, __func__, (_desc))
 
 
-static ast_node *parse_const_expr() {
-    // Later this will actually resolve expressions, not just literals
+static ast_node *parse_literal() {
     if (maybe_token(TOK_LITERAL)) {
-        return const_expr_node(tok_value);
+        return literal_node(tok_value);
     }
     return NULL;
 }
 
+static ast_node *parse_expr(bool is_const) {
+    // todo: actually fill this in
+
+    ast_node *result = parse_literal();
+    if (result) { return result; }
+
+    return NULL;
+}
+
 static ast_node *parse_type_component() {
-    ast_node *count = parse_const_expr();
+    ast_node *count = parse_expr(true);
     if (count == NULL) {
         return NULL;
     }
@@ -615,31 +623,76 @@ static ast_node *parse_type_definition() {
     return type_def_node(name, type);
 }
 
-static ast_node *parse_variable_definition(bool is_global) {
+static ast_node *parse_arg() {
+    ast_node *type = parse_type();
+    if (type == NULL) { return NULL; }
+    expect_ident("an argument name");
+    const char *name = intern(tok_buf);
+    return local_def_node(name, type, NULL, false);
+}
+
+static ast_node *parse_args() {
+    ast_node *head = NULL;
+    while (1) {
+        ast_node *arg = parse_arg();
+        if (!arg) { return head; }
+        head = append(head, arg);
+        if (!maybe_token(TOK_COMMA)) {
+            return head;
+        }
+    }
+}
+
+static ast_node *parse_var_or_func_def(bool is_global) {
     bool is_const = false;
-    ast_node *type = NULL;
+    bool is_inline = false;
     if (maybe_token(TOK_CONST)) {
         is_const = true;
-        type = parse_type();
-        if (type == NULL) { // const eliminates any other productions
-            FATAL("expected type after 'const'\n");
-        }
-    } else {
-        type = parse_type();
-        if (type == NULL) {
-            return NULL;
-        }
+    } else if (maybe_token(TOK_INLINE)) {
+        is_inline = true;
     }
-    expect_ident("a variable name");
+    ast_node *type = parse_type();
+    if (type == NULL) {
+        if (is_inline) {
+            FATAL("expected function definition after 'inline'\n");
+        }
+        if (is_const) {
+            FATAL("expected variable definition after 'const'\n");
+        }
+        return NULL;
+    }
+
+    expect_ident("a name");
     const char *name = intern(tok_buf);
 
-    // todo: init value
+    // Now, is this a variable, a foward declaration, or a function?
 
+    // Is there an initial value assignment?
+    ast_node *init_or_args = NULL;
+    if (maybe_token(TOK_ASSIGN)) { // must be a variable, then
+        // local const can refer to runtime values, global can't
+        init_or_args = parse_expr(is_global && is_const);
+        if (init_or_args == NULL) {
+            FATAL("expected valid init expression for '%s'", name);
+        }
+    } else if (maybe_token(TOK_LPAREN)) { // Parens?
+        init_or_args = parse_args();
+        expect_token(TOK_RPAREN);
+        if (maybe_token(TOK_SEMI)) {
+            if (is_inline) {
+                FATAL("can't forward declare inline function '%s'\n", name);
+            }
+            return function_decl_node(name, type, init_or_args);
+        }
+        FATAL("todo: function body");
+    }
+
+variable:
     expect_token(TOK_SEMI);
     if (is_global) {
-        return global_def_node(name, type, NULL, is_const);
+        return global_def_node(name, type, init_or_args, is_const);
     }
-    return local_def_node(name, type, NULL, is_const);
+    return local_def_node(name, type, init_or_args, is_const);
 }
 
 static ast_node *parse_definition(bool is_global) {
@@ -649,10 +702,7 @@ static ast_node *parse_definition(bool is_global) {
         result = parse_type_definition();
         if (result) { return result; }
     }
-    result = parse_variable_definition(is_global);
-    if (result) { return result; }
-
-    return NULL; 
+    return parse_var_or_func_def(is_global);
 }
 
 static ast_node *parse_top_level() {

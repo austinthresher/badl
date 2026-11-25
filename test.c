@@ -69,5 +69,31 @@ void run_tests() {
 
     test("bit enabled;",
         "(global enabled (typename bit))");
+
+    test("const bit flag;",
+        "(global flag const (typename bit))");
+
+    test("const bit flag = 1;",
+        "(global flag const (typename bit) 1)");
+
+    test("bit flag = 0;",
+        "(global flag (typename bit) 0)");
+
+    test("[1 bit] flag = 0;",
+        "(global flag (type (1 bit)) 0)");
+
+    test("void foo();",
+        "(decl foo (typename void) ())");
+
+    test("bit foo();",
+        "(decl foo (typename bit) ())");
+
+    test("[8 bit .bar] foo();",
+        "(decl foo (type (8 bit .bar)) ())");
+
+    test("void foo(bit a, bit b);",
+        "(decl foo (typename void)"
+        " (local a (typename bit)) (local b (typename bit)))");
+
 }
 

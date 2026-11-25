@@ -235,16 +235,16 @@ end
 
 void flow_examples(bit condition, byte num)
     if (condition) # 0 is falsey, anything else is true
-        ; # no-op statement
+        # ...
     elif (num > 0)
         goto after;
     else
-        ;
+        # ...
     end
 
 after:
     while (condition)
-        ;
+        # ...
     end
 end
 

@@ -63,7 +63,7 @@ enum node_type {
     AST_NAMED_TYPE,
     AST_TYPE_COMPONENT,
     AST_TYPE_DEF,
-    AST_CONST_EXPR,
+    AST_LITERAL,
     AST_GLOBAL_DEF,
     AST_LOCAL_DEF, // also used for function args
     AST_FUNCTION_DECL,
@@ -93,9 +93,9 @@ typedef struct ast_node {
             struct ast_node *type;
         } type_def;
 
-        struct { // AST_CONST_EXPR
+        struct { // AST_LITERAL
             uint64_t value;
-        } const_expr;
+        } literal;
 
         struct { // AST_GLOBAL_DEF
             const char *name;
@@ -114,7 +114,7 @@ typedef struct ast_node {
         struct { // AST_FUNCTION_DECL
             const char *name;
             struct ast_node *ret_type;
-            struct ast_node *arg_types;
+            struct ast_node *args;
         } function_decl;
 
         struct { // AST_FUNCTION_DEF
