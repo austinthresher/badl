@@ -3,21 +3,21 @@
 #include <string.h>
 #include <stdint.h>
 
-typedef struct InternStr {
-    struct InternStr *next;
+typedef struct interned_str {
+    struct interned_str *next;
     uint16_t len;
     char str[];
-} InternStr;
+} interned_str;
 
-static InternStr *string_table = NULL;
-static Arena *string_arena = NULL;
+static interned_str *string_table = NULL;
+static arena *string_arena = NULL;
 
 const char *intern(const char *str) {
     if (!string_arena) {
         string_arena = arena_new(4096);
     }
     uint16_t len = strlen(str);
-    for (InternStr *s = string_table; s != NULL; s = s->next) {
+    for (interned_str *s = string_table; s != NULL; s = s->next) {
         if (len != s->len) {
             continue;
         }
@@ -25,8 +25,8 @@ const char *intern(const char *str) {
             return s->str;
         }
     }
-    size_t sz = sizeof(InternStr) + len + 1;
-    InternStr *s = (InternStr*)arena_alloc(string_arena, sz);
+    size_t sz = sizeof(interned_str) + len + 1;
+    interned_str *s = (interned_str*)arena_alloc(string_arena, sz);
     strncpy(s->str, str, len+1);
     s->len = len;
     s->next = string_table;

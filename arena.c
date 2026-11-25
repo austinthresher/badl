@@ -6,8 +6,8 @@
 
 #include "fatal.h"
 
-Arena *arena_new(size_t size) {
-    Arena *a = (Arena *)malloc(sizeof(Arena));
+arena *arena_new(size_t size) {
+    arena *a = (arena *)malloc(sizeof(arena));
     a->base = malloc(size);
     a->size = size;
     a->used = 0;
@@ -15,7 +15,7 @@ Arena *arena_new(size_t size) {
     return a;
 }
 
-void arena_free(Arena *a) {
+void arena_free(arena *a) {
     if (a == NULL) { return; }
     if (a->next) { arena_free(a->next); }
     free(a->base);
@@ -23,7 +23,7 @@ void arena_free(Arena *a) {
     free(a);
 }
 
-void arena_reset(Arena *a) {
+void arena_reset(arena *a) {
     if (a == NULL) { FATAL("arena is null"); }
     memset(a->base, 0, a->size);
     a->used = 0;
@@ -32,7 +32,7 @@ void arena_reset(Arena *a) {
     }
 }
 
-void *arena_alloc(Arena *a, size_t n) {
+void *arena_alloc(arena *a, size_t n) {
     if (a == NULL) { FATAL("arena is null"); }
     size_t avail = a->size - a->used;
     if (n <= avail) {

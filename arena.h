@@ -3,16 +3,16 @@
 
 #include <stdlib.h>
 
-typedef struct Arena {
+typedef struct arena {
     void *base;
     size_t used;
     size_t size;
-    struct Arena *next;
-} Arena;
+    struct arena *next;
+} arena;
 
-Arena *arena_new(size_t size);
-void arena_free(Arena *a);
-void arena_reset(Arena *a);
-void *arena_alloc(Arena *a, size_t n);
+arena *arena_new(size_t size);
+void arena_free(arena *a);
+void arena_reset(arena *a);
+void *arena_alloc(arena *a, size_t n);
 
 #endif
