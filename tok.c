@@ -5,9 +5,35 @@
 #include <stdbool.h>
 #include <string.h>
 
+static tok_error_cb on_error = NULL;
+static char error_msg[512];
+
+void tok_on_error(tok_error_cb cb) { on_error = cb; }
+static void fail(const char *fmt, const char *arg0, const char *arg1) {
+    if (arg0 == NULL && arg1 == NULL) {
+        strncpy(error_msg, fmt, sizeof(error_msg)-1);
+    } else if (arg1 == NULL) {
+        snprintf(error_msg, sizeof(error_msg), fmt, arg0);
+    } else {
+        snprintf(error_msg, sizeof(error_msg), fmt, arg0, arg1);
+    }
+    if (on_error == NULL) {
+        FATAL("tokenizer error: %s\n", error_msg);
+    } else {
+        // This is expected to not return
+        on_error(error_msg);
+    }
+}
+
+static char tok_buf[128]; // Only set for identifiers, expand for strings later
+static uint64_t token_value = 0; // Only set for literals
+static int stashed_token = -1;
+static uint64_t stashed_value = 0;
+static char stashed_buf[sizeof(tok_buf)];
 static const char *in_buf = NULL;
 static int in_idx = 0;
 static int in_len = 0;
+static int cur_line = 0;
 
 static int in_left() {
     int r = in_len - in_idx;
@@ -21,24 +47,24 @@ static void prevc() {
     if (in_idx > 0) { in_idx--; }
 }
 
-static char tok_buf[128]; // Only set for identifiers, expand for strings later
-static uint64_t token_value = 0; // Only set for literals
-static int stashed_token = -1;
-static uint64_t stashed_value = 0;
-static char stashed_buf[sizeof(tok_buf)];
+int tok_line() { return cur_line; }
 
 void tok_reset() {
     memset(tok_buf, 0, sizeof(tok_buf));
     memset(stashed_buf, 0, sizeof(stashed_buf));
     stashed_token = -1;
     token_value = stashed_value = 0;
+    in_buf = "";
+    in_len = 0;
+    in_idx = 0;
+    cur_line = 0;
 }
 
 void tok_from_string(const char *text) {
+    tok_reset();
     in_buf = text;
     in_len = strlen(text);
     in_idx = 0;
-    tok_reset();
 }
 
 const char *tok_name(int tok) {
@@ -159,7 +185,7 @@ static void tokenize_identifier() {
         }
         tok_buf[idx++] = c;
     }
-    FATAL("identifier too long: %s\n", tok_buf);
+    fail("identifier too long: %s", tok_buf, NULL);
 }
 
 static int advance_token() {
@@ -169,6 +195,7 @@ static int advance_token() {
         if (c == '#') { // skip comments
             while (c != '\n' && c != EOF) { c = nextc(); }
         }
+        if (c == '\n') { cur_line++; }
     } while (isspace(c));
 
     // unambiguous single-character tokens
@@ -240,8 +267,10 @@ static int advance_token() {
         return TOK_LITERAL;
     }
     if (!isalpha(c) && c != '_') {
-        // todo: handle this more gracefully
-        FATAL("unexpected character: %c (%d)\n", (char)c, c);
+        char buf[2];
+        buf[0] = (char)c;
+        buf[1] = '\0';
+        fail("unexpected character: %s", buf, NULL);
     }
     prevc();
     tokenize_identifier();
@@ -280,6 +309,7 @@ int tok_peek() {
 
 void tok_undo(int tok) {
     if (stashed_token != -1) {
+        // This should never happen so I'm leaving it fatal
         FATAL("undo would overwrite stashed token %s (%d) with %s (%d)\n",
               tok_name(stashed_token), stashed_token,
               tok_name(tok), tok);
@@ -300,21 +330,16 @@ bool tok_maybe(int tok) {
 uint64_t tok_value() { return token_value; }
 const char *tok_identifier() { return tok_buf; }
 
-void tok_expect_(const char *file, int line, const char *fn, int tok) {
+void tok_expect(int tok) {
     int next = tok_next();
     if (next != tok) {
-        FATAL_AT(file, line, fn, "expected %s, got: %s\n",
-                 tok_name(tok), tok_name(next));
+        fail("expected %s, got %s", tok_name(tok), tok_name(next));
     }
 }
 
-void tok_expect_ident_(const char *file,
-                       int line,
-                       const char *fn,
-                       const char *desc) {
+void tok_expect_ident(const char *desc) {
     int next = tok_next();
     if (next != TOK_IDENT) {
-        FATAL_AT(file, line, fn, "expected %s, got: %s\n",
-                 desc, tok_name(next));
+        fail("expected %s, got %s", desc, tok_name(next));
     }
 }

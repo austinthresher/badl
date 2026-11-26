@@ -2,11 +2,29 @@
 #include "tok.h"
 #include "str.h"
 #include "fatal.h"
+#include <setjmp.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
-const char *ast_error() { return "?"; } // todo
+static char error_msg[512];
+const char *ast_error() { return error_msg; }
+
+static jmp_buf err_jmp_buf;
+
+static void fail(const char *fmt, const char *arg) {
+    char linebuf[32];
+    int off = snprintf(linebuf, sizeof(linebuf), "[error] line %d: ", tok_line()+1);
+    strncpy(error_msg, linebuf, sizeof(error_msg));
+    if (arg == NULL) {
+        strncpy(&error_msg[off], fmt, sizeof(error_msg)-1-off);
+    } else {
+        snprintf(&error_msg[off], sizeof(error_msg)-off, fmt, arg);
+    }
+    longjmp(err_jmp_buf, 1);
+}
+
+static void tokenizer_fail(const char *msg) { fail(msg, NULL); }
 
 // We share this buffer across each iteration of recursion
 // to build the string across multiple calls.
@@ -276,7 +294,7 @@ static ast_node *parse_type_spec() {
     }
     ast_node *component = parse_type_component();
     if (component == NULL) {
-        FATAL("empty or missing type component\n");
+        fail("empty or missing type component", NULL);
     }
     ast_node *result = type_node(component);
     while ((component = parse_type_component())) {
@@ -302,7 +320,7 @@ static ast_node *parse_type_definition() {
     const char *name = intern(tok_identifier());
     ast_node *type = parse_type();
     if (type == NULL) {
-        FATAL("definition for type %s is invalid\n", name);
+        fail("definition for type '%s' is invalid", name);
     }
     tok_expect(TOK_SEMI);
     return type_def_node(name, type);
@@ -355,6 +373,8 @@ static ast_node *parse_block() {
     }
 }
 
+// This is pretty long but I'm not sure how else we can hold off on committing
+// to a function or variable until we see past the name
 static ast_node *parse_var_or_func_def(bool is_global) {
     bool is_const = false;
     bool is_inline = false;
@@ -366,10 +386,10 @@ static ast_node *parse_var_or_func_def(bool is_global) {
     ast_node *type = parse_type();
     if (type == NULL) {
         if (is_inline) {
-            FATAL("expected function definition after 'inline'\n");
+            fail("expected function definition after 'inline'", NULL);
         }
         if (is_const) {
-            FATAL("expected variable definition after 'const'\n");
+            fail("expected variable definition after 'const'", NULL);
         }
         return NULL;
     }
@@ -385,20 +405,23 @@ static ast_node *parse_var_or_func_def(bool is_global) {
         // local const can refer to runtime values, global can't
         init_or_args = parse_expr(is_global && is_const);
         if (init_or_args == NULL) {
-            FATAL("expected valid init expression for '%s'", name);
+            fail("invalid init expression for '%s'", name);
         }
     } else if (tok_maybe(TOK_LPAREN)) { // Parens?
         if (!is_global && !is_inline) {
-            FATAL("nested function '%s' must be inline\n", name);
+            fail("nested function '%s' must be inline", name);
         }
         init_or_args = parse_args();
         tok_expect(TOK_RPAREN);
+        if (is_const) {
+            fail("function '%s' can't be const", name);
+        }
         if (tok_maybe(TOK_SEMI)) {
             if (!is_global) {
-                FATAL("can't forward declare nested function '%s'\n", name);
+                fail("can't forward declare nested function '%s'", name);
             }
             if (is_inline) {
-                FATAL("can't forward declare inline function '%s'\n", name);
+                fail("can't forward declare inline function '%s'", name);
             }
             return forward_decl_node(name, type, init_or_args);
         }
@@ -432,15 +455,25 @@ static ast_node *parse_top_level() {
         // later some sort of include probably goes here too
         ast_node *next = parse_definition(true);
         if (next == NULL) {
-            FATAL("unexpected token: %s\n", tok_name(tok_peek()));
+            fail("unexpected token: %s", tok_name(tok_peek()));
         }
         result = append(result, next);
     }
 }
 
-ast_node *ast_from_string(arena *a, const char *text) {
+void ast_init_parser(arena *a) {
+    memset(error_msg, 0, sizeof(error_msg));
+    error_msg[0] = '?';
     ar = a;
+    tok_on_error(tokenizer_fail);
+}
+
+ast_node *ast_from_string(arena *a, const char *text) {
     tok_from_string(text);
+    ast_init_parser(a);
+    if (setjmp(err_jmp_buf)) {
+        return NULL;
+    }
     return parse_top_level();
 }
 

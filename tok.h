@@ -25,12 +25,11 @@ void tok_undo(int tok);
 bool tok_maybe(int tok);
 uint64_t tok_value();
 const char *tok_identifier();
+void tok_expect(int tok);
+void tok_expect_ident(const char *desc);
+int tok_line();
 
-void tok_expect_(const char *f, int ln, const char *fn, int tok);
-void tok_expect_ident_(const char *f, int ln, const char *fn, const char *txt);
-
-#define tok_expect(_tok) tok_expect_(__FILE__, __LINE__, __func__, (_tok))
-#define tok_expect_ident(_desc) \
-    tok_expect_ident_(__FILE__, __LINE__, __func__, (_desc))
+typedef void (*tok_error_cb)(const char *);
+void tok_on_error(tok_error_cb fn);
 
 #endif

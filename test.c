@@ -31,8 +31,10 @@ void test(const char *bdl, const char *sexp) {
     arena_reset(ar);
     ast_node *node = ast_from_string(ar, bdl);
     const char *result = ast_sexp(node);
-    if ((sexp != NULL && strcmp(result, sexp) == 0) || result == sexp) {
+    if ((sexp != NULL && strcmp(result, sexp) == 0) ||
+        (sexp == NULL && node == NULL)) {
         passed++;
+        if (node == NULL && sexp == NULL) { result = ast_error(); }
         if (verbosity > 0) {
             printf("%3d pass: %s -> %s\n", total, bdl, result);
         }
@@ -44,6 +46,10 @@ void test(const char *bdl, const char *sexp) {
 
 void run_tests() {
     test("# a comment", "()");
+
+    test("type byte [8 8 bit];", NULL);
+    test("type byte [8 bit]", NULL);
+    test("type byte [8]", NULL);
 
     test("type byte [8 bit];",
         "(typedef byte (type (8 bit)))");
@@ -63,9 +69,16 @@ void run_tests() {
     test("type named [4 bit .lo 4 bit .hi];",
         "(typedef named (type (4 bit .lo) (4 bit .hi)))");
 
+    test("type named [4 bit .lo .hi];", NULL);
+
     test("type nibb [4 bit]; type byte [2 nibb];",
         "(typedef nibb (type (4 bit))) "
         "(typedef byte (type (2 nibb)))");
+
+    test("bit enabled", NULL);
+    test("bit enabled =", NULL);
+    test("bit enabled = 0", NULL);
+    test("const bit;", NULL);
 
     test("bit enabled;",
         "(global enabled (typename bit))");
@@ -82,6 +95,11 @@ void run_tests() {
     test("[1 bit] flag = 0;",
         "(global flag (type (1 bit)) 0)");
 
+    test("inline void foo();", NULL);
+    test("const void foo();", NULL);
+    test("void const foo();", NULL);
+    test("const void foo();", NULL);
+
     test("void foo();",
         "(decl foo (typename void) ())");
 
@@ -93,7 +111,14 @@ void run_tests() {
 
     test("void foo(bit a, bit b);",
         "(decl foo (typename void)"
-        " (local a (typename bit)) (local b (typename bit)))");
+        " (local a (typename bit))"
+        " (local b (typename bit)))");
+
+    test("void foo() end;", NULL);
+    test("void foo() void bar() end end", NULL);
+    test("void const foo() end", NULL);
+    test("void inline foo() end", NULL);
+    test("void end() end", NULL);
 
     test("void foo() end",
         "(func foo (typename void) () (block ()))");
@@ -113,6 +138,10 @@ void run_tests() {
 
     test("void foo() inline void bar() end end",
         "(func foo (typename void) () (block"
+        " (func bar inline (typename void) () (block ()))))");
+
+    test("inline void foo() inline void bar() end end",
+        "(func foo inline (typename void) () (block"
         " (func bar inline (typename void) () (block ()))))");
 }
 
