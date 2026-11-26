@@ -89,7 +89,6 @@ typedef struct ast_node {
         struct { // AST_VARIABLE
             const char *name;
         } variable;
-
     };
 
     // A node never sets its own cdr, only a containing node.
@@ -98,11 +97,23 @@ typedef struct ast_node {
     struct ast_node *cdr;
 } ast_node;
 
-// Returns NULL on failure
-ast_node *ast_from_string(arena *a, const char *text);
-
-// Get the error that stopped the most recent parse attempt, if any
-const char *ast_error();
+ast_node *ast_type_node(arena *a, ast_node *components);
+ast_node *ast_named_type_node(arena *a, const char *name);
+ast_node *ast_type_component_node(arena *a, ast_node *count, const char *type,
+                                  const char *field);
+ast_node *ast_type_def_node(arena *a, const char *name, ast_node *type);
+ast_node *ast_literal_node(arena *a, uint64_t value);
+ast_node *ast_global_def_node(arena *a, const char *name, ast_node *type,
+                              ast_node *init, bool is_const);
+ast_node *ast_local_def_node(arena *a, const char *name, ast_node *type,
+                             ast_node *init, bool is_const);
+ast_node *ast_forward_decl_node(arena *a, const char *name, ast_node *rtype,
+                                ast_node *args);
+ast_node *ast_function_def_node(arena *a, const char *name, ast_node *rtype,
+                                ast_node *args, ast_node *body, bool is_inline);
+ast_node *ast_block_node(arena *a, ast_node *statements);
+ast_node *ast_ret_node(arena *a, ast_node *expr);
+ast_node *ast_variable_node(arena *a, const char *name);
 
 // Render an AST as an S-expression
 const char *ast_sexp(ast_node *root);

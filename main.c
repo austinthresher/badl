@@ -4,6 +4,7 @@
 
 #include "arena.h"
 #include "ast.h"
+#include "parse.h"
 
 int main(int argc, const char *argv[]) {
     arena *ar = arena_new(0x8000);
@@ -29,9 +30,9 @@ int main(int argc, const char *argv[]) {
     fclose(f);
     file_buf[len] = '\0';
 
-    ast_node *n = ast_from_string(ar, file_buf);
+    ast_node *n = parse_from_string(ar, file_buf);
     if (n == NULL) {
-        fprintf(stderr, "%s\n", ast_error());
+        fprintf(stderr, "%s\n", parse_error());
         return EXIT_FAILURE;
     }
     printf("%s\n", ast_sexp(n));

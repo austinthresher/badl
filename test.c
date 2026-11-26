@@ -5,6 +5,7 @@
 
 #include "arena.h"
 #include "ast.h"
+#include "parse.h"
 
 arena *ar = NULL;
 int passed = 0;
@@ -29,12 +30,12 @@ int main(int argc, const char *argv[]) {
 void test(const char *bdl, const char *sexp) {
     total++;
     arena_reset(ar);
-    ast_node *node = ast_from_string(ar, bdl);
+    ast_node *node = parse_from_string(ar, bdl);
     const char *result = ast_sexp(node);
     if ((sexp != NULL && strcmp(result, sexp) == 0) ||
         (sexp == NULL && node == NULL)) {
         passed++;
-        if (node == NULL && sexp == NULL) { result = ast_error(); }
+        if (node == NULL && sexp == NULL) { result = parse_error(); }
         if (verbosity > 0) {
             printf("%3d pass: %s -> %s\n", total, bdl, result);
         }

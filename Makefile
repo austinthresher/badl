@@ -1,8 +1,8 @@
 CC         := gcc
 CFLAGS     := -Wall
 TARGET     := badlc
-SRCS       := arena.c str.c tok.c ast.c
-INCS       := arena.h str.h tok.h ast.h
+SRCS       := arena.c str.c tok.c ast.c parse.c
+INCS       := arena.h str.h tok.h ast.h parse.h fatal.h
 
 all: $(TARGET)
 
