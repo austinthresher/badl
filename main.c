@@ -7,7 +7,8 @@
 
 int main(int argc, const char *argv[]) {
     arena *ar = arena_new(0x8000);
-    ast_node *n = parse_string(ar,
+    ast_node *n = ast_from_string(
+        ar,
         "type byte [8 bit 4 bit];"
     );
     printf("%s\n", ast_sexp(n));

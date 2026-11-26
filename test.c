@@ -29,9 +29,9 @@ int main(int argc, const char *argv[]) {
 void test(const char *bdl, const char *sexp) {
     total++;
     arena_reset(ar);
-    ast_node *node = parse_string(ar, bdl);
+    ast_node *node = ast_from_string(ar, bdl);
     const char *result = ast_sexp(node);
-    if (strcmp(result, sexp) == 0) {
+    if ((sexp != NULL && strcmp(result, sexp) == 0) || result == sexp) {
         passed++;
         if (verbosity > 0) {
             printf("%3d pass: %s -> %s\n", total, bdl, result);

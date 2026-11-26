@@ -143,10 +143,10 @@ typedef struct ast_node {
 } ast_node;
 
 // Returns NULL on failure
-ast_node *parse_string(arena *a, const char *text);
+ast_node *ast_from_string(arena *a, const char *text);
 
 // Get the error that stopped the most recent parse attempt, if any
-const char *parse_error();
+const char *ast_error();
 
 // Render an AST as an S-expression
 const char *ast_sexp(ast_node *root);
