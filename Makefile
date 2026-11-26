@@ -21,4 +21,7 @@ test: test.c $(SRCS) $(INCS)
 clean:
 	rm -f $(TARGET) test
 
-.PHONY: all clean
+format:
+	clang-format -i -style=file $(SRCS) $(INCS)
+
+.PHONY: all clean format
