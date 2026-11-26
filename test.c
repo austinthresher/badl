@@ -50,7 +50,9 @@ void run_tests() {
 
     test("type byte [8 8 bit];", NULL);
     test("type byte [8 bit]", NULL);
-    test("type byte [8]", NULL);
+    test("type byte [8];", NULL);
+    test("type bit [1 bit];", NULL);
+    test("type byte [8 bit]; type byte [4 bit];", NULL);
 
     test("type byte [8 bit];",
         "(typedef byte (type (8 bit)))");
@@ -115,11 +117,15 @@ void run_tests() {
         " (local a (typename bit))"
         " (local b (typename bit)))");
 
-    test("void foo() end;", NULL);
     test("void foo() void bar() end end", NULL);
     test("void const foo() end", NULL);
     test("void inline foo() end", NULL);
     test("void end() end", NULL);
+    test("void foo() inline void foo() end end", NULL);
+    test("void foo() bit foo; end", NULL);
+    test("bit foo; void foo() end", NULL);
+    test("type foo [1 bit]; void foo() end", NULL);
+    test("void foo() end type foo [1 bit]; ", NULL);
 
     test("void foo() end",
         "(func foo (typename void) () (block ()))");
@@ -144,5 +150,21 @@ void run_tests() {
     test("inline void foo() inline void bar() end end",
         "(func foo inline (typename void) () (block"
         " (func bar inline (typename void) () (block ()))))");
+
+    test("bit bar; void foo() [2 bit] bar; end",
+        "(global bar (typename bit))"
+        " (func foo (typename void) ()"
+        " (block (local bar (type (2 bit)))))");
+
+    test("bit foo = bar;", NULL);
+    test("bit bar = 1; bit foo = bar;", NULL);
+    test("const bit bar = 1; bit foo = bar;", 
+        "(global bar const (typename bit) 1) "
+        "(global foo (typename bit) (var bar))");
+    test("const bit bar = 1; const bit foo = bar;",
+        "(global bar const (typename bit) 1) "
+        "(global foo const (typename bit) (var bar))");
+
+    test("void foo(bit a) bit a; end", NULL);
 }
 

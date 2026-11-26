@@ -3,6 +3,7 @@
 #include "fatal.h"
 #include "str.h"
 #include "tok.h"
+#include "symtab.h"
 #include <setjmp.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -43,13 +44,34 @@ static ast_node *append(ast_node *dst, ast_node *node) {
     return head;
 }
 
+// todo: we might need this to allow fallthrough to another production
+// instead of dying
+static void check_variable(const char *name, bool require_const) {
+    if (!symtab_is_variable(name)) {
+        fail("'%s' is not a defined variable", name);
+    }
+    if (require_const) {
+        symtab_entry *e = symtab_find(name);
+        bool is_const;
+        if (e->def->ast_type == AST_GLOBAL_DEF) {
+            is_const = e->def->global_def.is_const;
+        } else {
+            is_const = e->def->local_def.is_const;
+        }
+        if (!is_const) {
+            fail("'%s' is required to be const", name);
+        }
+    }
+}
+
 static ast_node *parse_literal() {
     if (tok_maybe(TOK_LITERAL)) { return ast_literal_node(ar, tok_value()); }
     return NULL;
 }
 
-static ast_node *parse_variable() {
+static ast_node *parse_variable(bool require_const) {
     if (tok_maybe(TOK_IDENT)) {
+        check_variable(tok_identifier(), require_const);
         return ast_variable_node(ar, tok_identifier());
     }
     return NULL;
@@ -60,12 +82,8 @@ static ast_node *parse_expr(bool is_const) {
 
     ast_node *result = parse_literal();
     if (result) { return result; }
-    // fixme: if we're const we need to check if the variable is const too,
-    // disallowing variables for const until the symtab is in
-    if (!is_const) {
-        result = parse_variable();
-        if (result) { return result; }
-    }
+    result = parse_variable(is_const);
+    if (result) { return result; }
 
     return NULL;
 }
@@ -75,6 +93,9 @@ static ast_node *parse_type_component() {
     if (count == NULL) { return NULL; }
     tok_expect_ident("a type");
     const char *type_name = intern(tok_identifier());
+    if (!symtab_is_type(type_name)) {
+        fail("'%s' is not a defined type", type_name);
+    }
     const char *label = NULL;
     if (tok_maybe(TOK_DOT)) {
         tok_expect_ident("a field name");
@@ -97,20 +118,29 @@ static ast_node *parse_type_spec() {
 
 static ast_node *parse_type() {
     if (tok_maybe(TOK_IDENT)) {
-        // fixme: assignment statements are unparseable until we check the
-        // symtab here to see if the identifier is actually a type
-        return ast_named_type_node(ar, intern(tok_identifier()));
+        // If we just got a name, look it up and make sure the type exists
+        const char *type_name = intern(tok_identifier());
+        if (!symtab_is_type(type_name)) {
+            fail("'%s' is not a defined type", type_name);
+        }
+        symtab_entry *e = symtab_find(type_name);
+        return e->def;
     }
     return parse_type_spec();
 }
 
 static ast_node *parse_type_definition() {
+    int line = tok_line();
     if (!tok_maybe(TOK_TYPE)) { return NULL; }
     tok_expect_ident("a name");
     const char *name = intern(tok_identifier());
+    if (symtab_find_current(name)) { // todo: show line
+        fail("redefinition of '%s'", name);
+    }
     ast_node *type = parse_type();
     if (type == NULL) { fail("definition for type '%s' is invalid", name); }
     tok_expect(TOK_SEMI);
+    symtab_add(name, type, line);
     return ast_type_def_node(ar, name, type);
 }
 
@@ -164,16 +194,19 @@ static ast_node *parse_statement() {
 // Just collect statements until we can't; doesn't check for `end` or anything
 static ast_node *parse_block() {
     ast_node *b = ast_block_node(ar, NULL);
+    symtab_enter();
     while (1) {
         ast_node *stmt = parse_statement();
         if (!stmt) { return b; }
         b->block.statements = append(b->block.statements, stmt);
     }
+    symtab_exit();
 }
 
 // This is pretty long but I'm not sure how else we can hold off on committing
 // to a function or variable until we see past the name
 static ast_node *parse_var_or_func_def(bool is_global) {
+    int line = tok_line();
     bool is_const = false;
     bool is_inline = false;
     if (tok_maybe(TOK_CONST)) {
@@ -195,13 +228,17 @@ static ast_node *parse_var_or_func_def(bool is_global) {
     tok_expect_ident("a name");
     const char *name = intern(tok_identifier());
 
+    if (symtab_find_current(name)) { // todo: line
+        fail("redefinition of '%s'", name);
+    }
+
     // Now, is this a variable, a foward declaration, or a function?
 
     // Is there an initial value assignment?
     ast_node *init_or_args = NULL;
     if (tok_maybe(TOK_ASSIGN)) { // must be a variable, then
         // local const can refer to runtime values, global can't
-        init_or_args = parse_expr(is_global && is_const);
+        init_or_args = parse_expr(is_global);
         if (init_or_args == NULL) {
             fail("invalid init expression for '%s'", name);
         }
@@ -219,20 +256,44 @@ static ast_node *parse_var_or_func_def(bool is_global) {
             if (is_inline) {
                 fail("can't forward declare inline function '%s'", name);
             }
-            return ast_forward_decl_node(ar, name, type, init_or_args);
+            if (symtab_find_current(name)) {
+                fail("redefinition of '%s'", name);
+            }
+            ast_node *d = ast_forward_decl_node(ar, name, type, init_or_args);
+            symtab_add(name, d, line);
+            return d;
         }
         ast_node *body = parse_block();
         tok_expect(TOK_END);
-        return ast_function_def_node(ar, name, type, init_or_args, body,
+        tok_maybe(TOK_SEMI); // harmless
+        ast_node *d = ast_function_def_node(ar, name, type, init_or_args, body,
                                      is_inline);
+        // If this function was forward-declared, update the symtab entry
+        symtab_entry *e = symtab_find(name);
+        if (e && e->def && e->def->ast_type == AST_FORWARD_DECL) {
+            // todo: make sure actual type/args match the forward declaration
+            e->def = d;
+        } else if (symtab_find_current(name)) {
+            fail("redefinition of '%s'", name);
+        } else {
+            symtab_add(name, d, line);
+        }
+        return d;
     }
 
     // Not a function
     tok_expect(TOK_SEMI);
-    if (is_global) {
-        return ast_global_def_node(ar, name, type, init_or_args, is_const);
+    if (symtab_find_current(name)) {
+        fail("redefinition of '%s'", name);
     }
-    return ast_local_def_node(ar, name, type, init_or_args, is_const);
+    ast_node *var;
+    if (is_global) {
+        var = ast_global_def_node(ar, name, type, init_or_args, is_const);
+    } else {
+        var = ast_local_def_node(ar, name, type, init_or_args, is_const);
+    }
+    symtab_add(name, var, line);
+    return var;
 }
 
 static ast_node *parse_definition(bool is_global) {
@@ -258,16 +319,20 @@ static ast_node *parse_top_level() {
     }
 }
 
-void ast_init_parser(arena *a) {
+void parser_init(arena *a) {
     memset(error_msg, 0, sizeof(error_msg));
     error_msg[0] = '?';
     ar = a;
     tok_on_error(tokenizer_fail);
+    symtab_init(a);
+    symtab_add("bit", ast_named_type_node(ar, "bit"), -1);
+    symtab_add("void", ast_named_type_node(ar, "void"), -1);
+    symtab_add("address", ast_named_type_node(ar, "address"), -1);
 }
 
 ast_node *parse_from_string(arena *a, const char *text) {
     tok_from_string(text);
-    ast_init_parser(a);
+    parser_init(a);
     if (setjmp(err_jmp_buf)) { return NULL; }
     return parse_top_level();
 }
