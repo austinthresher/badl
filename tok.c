@@ -1,6 +1,6 @@
 #include "tok.h"
-#include "str.h"
 #include "fatal.h"
+#include "str.h"
 #include <ctype.h>
 #include <stdbool.h>
 #include <string.h>
@@ -9,9 +9,10 @@ static tok_error_cb on_error = NULL;
 static char error_msg[512];
 
 void tok_on_error(tok_error_cb cb) { on_error = cb; }
+
 static void fail(const char *fmt, const char *arg0, const char *arg1) {
     if (arg0 == NULL && arg1 == NULL) {
-        strncpy(error_msg, fmt, sizeof(error_msg)-1);
+        strncpy(error_msg, fmt, sizeof(error_msg) - 1);
     } else if (arg1 == NULL) {
         snprintf(error_msg, sizeof(error_msg), fmt, arg0);
     } else {
@@ -39,10 +40,12 @@ static int in_left() {
     int r = in_len - in_idx;
     return r < 0 ? 0 : r;
 }
+
 static int nextc() {
     if (!in_buf || !in_left()) { return EOF; }
     return in_buf[in_idx++];
 }
+
 static void prevc() {
     if (in_idx > 0) { in_idx--; }
 }
@@ -175,12 +178,10 @@ static void tokenize_decimal() {
 static void tokenize_identifier() {
     memset(tok_buf, 0, sizeof(tok_buf));
     int idx = 0;
-    while (idx < sizeof(tok_buf)-1) {
+    while (idx < sizeof(tok_buf) - 1) {
         int c = nextc();
         if (!isalnum(c) && c != '_') {
-            if (c != EOF) {
-                prevc();
-            }
+            if (c != EOF) { prevc(); }
             return;
         }
         tok_buf[idx++] = c;
@@ -311,8 +312,7 @@ void tok_undo(int tok) {
     if (stashed_token != -1) {
         // This should never happen so I'm leaving it fatal
         FATAL("undo would overwrite stashed token %s (%d) with %s (%d)\n",
-              tok_name(stashed_token), stashed_token,
-              tok_name(tok), tok);
+              tok_name(stashed_token), stashed_token, tok_name(tok), tok);
     }
     stashed_token = tok;
     memcpy(stashed_buf, tok_buf, sizeof(stashed_buf));
@@ -328,6 +328,7 @@ bool tok_maybe(int tok) {
 }
 
 uint64_t tok_value() { return token_value; }
+
 const char *tok_identifier() { return tok_buf; }
 
 void tok_expect(int tok) {

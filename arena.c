@@ -1,8 +1,8 @@
 #include "arena.h"
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
 
 #include "fatal.h"
 
@@ -34,9 +34,7 @@ void arena_reset(arena *a) {
     if (a == NULL) { FATAL("arena is null"); }
     memset(a->base, 0, a->size);
     a->used = 0;
-    if (a->next) {
-        arena_reset(a->next);
-    }
+    if (a->next) { arena_reset(a->next); }
 }
 
 void *arena_alloc(arena *a, size_t n) {
@@ -45,7 +43,7 @@ void *arena_alloc(arena *a, size_t n) {
     if (n <= avail) {
         uintptr_t ptr = (uintptr_t)a->base + a->used;
         a->used += n;
-        return (void*)ptr;
+        return (void *)ptr;
     }
     if (!a->next) {
         size_t next_size = a->size;

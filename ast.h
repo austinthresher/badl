@@ -24,6 +24,7 @@ enum node_type {
 
 typedef struct ast_node {
     int ast_type;
+
     union {
         struct { // AST_TYPE
             struct ast_node *components;

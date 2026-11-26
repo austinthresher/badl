@@ -1,7 +1,7 @@
 #include "ast.h"
-#include "tok.h"
-#include "str.h"
 #include "fatal.h"
+#include "str.h"
+#include "tok.h"
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,14 +10,16 @@
 // to build the string across multiple calls.
 static char sexp_str[4096];
 static int sexp_idx = 0;
+
 static int sexp_left() {
     int r = sizeof(sexp_str) - sexp_idx;
     return r < 0 ? 0 : r;
 }
 
-#define SPRINT(...) do { \
-    sexp_idx += snprintf(&sexp_str[sexp_idx], sexp_left(), \
-        __VA_ARGS__); } while (0)
+#define SPRINT(...)                                                            \
+    do {                                                                       \
+        sexp_idx += snprintf(&sexp_str[sexp_idx], sexp_left(), __VA_ARGS__);   \
+    } while (0)
 
 static void ast_sexp_recur(ast_node *root) {
     if (!root) {
@@ -31,9 +33,7 @@ static void ast_sexp_recur(ast_node *root) {
         SPRINT(")");
         break;
 
-    case AST_NAMED_TYPE:
-        SPRINT("(typename %s)", root->named_type.name);
-        break;
+    case AST_NAMED_TYPE: SPRINT("(typename %s)", root->named_type.name); break;
 
     case AST_TYPE_COMPONENT:
         SPRINT("(");
@@ -51,15 +51,11 @@ static void ast_sexp_recur(ast_node *root) {
         SPRINT(")");
         break;
 
-    case AST_LITERAL:
-        SPRINT("%lu", root->literal.value);
-        break;
+    case AST_LITERAL: SPRINT("%lu", root->literal.value); break;
 
     case AST_GLOBAL_DEF:
         SPRINT("(global %s ", root->global_def.name);
-        if (root->global_def.is_const) {
-            SPRINT("const ");
-        }
+        if (root->global_def.is_const) { SPRINT("const "); }
         ast_sexp_recur(root->global_def.type);
         if (root->global_def.init) {
             SPRINT(" ");
@@ -70,9 +66,7 @@ static void ast_sexp_recur(ast_node *root) {
 
     case AST_LOCAL_DEF:
         SPRINT("(local %s ", root->local_def.name);
-        if (root->local_def.is_const) {
-            SPRINT("const ");
-        }
+        if (root->local_def.is_const) { SPRINT("const "); }
         ast_sexp_recur(root->local_def.type);
         if (root->local_def.init) {
             SPRINT(" ");
@@ -91,9 +85,7 @@ static void ast_sexp_recur(ast_node *root) {
 
     case AST_FUNCTION_DEF:
         SPRINT("(func %s ", root->function_def.name);
-        if (root->function_def.is_inline) {
-            SPRINT("inline ");
-        }
+        if (root->function_def.is_inline) { SPRINT("inline "); }
         ast_sexp_recur(root->function_def.ret_type);
         SPRINT(" ");
         ast_sexp_recur(root->function_def.args);
@@ -117,13 +109,9 @@ static void ast_sexp_recur(ast_node *root) {
         SPRINT(")");
         break;
 
-    case AST_VARIABLE:
-        SPRINT("(var %s)", root->variable.name);
-        break;
+    case AST_VARIABLE: SPRINT("(var %s)", root->variable.name); break;
 
-    default:
-        SPRINT("?");
-        break;
+    default: SPRINT("?"); break;
     }
 
     if (root->cdr) {
@@ -131,6 +119,7 @@ static void ast_sexp_recur(ast_node *root) {
         ast_sexp_recur(root->cdr);
     }
 }
+
 #undef SPRINT
 
 const char *ast_sexp(ast_node *root) {
@@ -141,7 +130,7 @@ const char *ast_sexp(ast_node *root) {
 }
 
 ast_node *new_node(arena *a, int ast_type) {
-    ast_node *n = (ast_node*)arena_alloc(a, sizeof(ast_node));
+    ast_node *n = (ast_node *)arena_alloc(a, sizeof(ast_node));
     memset(n, 0, sizeof(ast_node));
     n->ast_type = ast_type;
     return n;
@@ -159,9 +148,8 @@ ast_node *ast_named_type_node(arena *a, const char *name) {
     return node;
 }
 
-ast_node *ast_type_component_node(arena *a, ast_node *count,
-                                     const char *type,
-                                     const char *field) {
+ast_node *ast_type_component_node(arena *a, ast_node *count, const char *type,
+                                  const char *field) {
     ast_node *node = new_node(a, AST_TYPE_COMPONENT);
     node->type_component.count = count;
     node->type_component.type = intern(type);
@@ -182,10 +170,8 @@ ast_node *ast_literal_node(arena *a, uint64_t value) {
     return node;
 }
 
-ast_node *ast_global_def_node(arena *a, const char *name,
-                                 ast_node *type,
-                                 ast_node *init,
-                                 bool is_const) {
+ast_node *ast_global_def_node(arena *a, const char *name, ast_node *type,
+                              ast_node *init, bool is_const) {
     ast_node *node = new_node(a, AST_GLOBAL_DEF);
     node->global_def.name = intern(name);
     node->global_def.type = type;
@@ -194,10 +180,8 @@ ast_node *ast_global_def_node(arena *a, const char *name,
     return node;
 }
 
-ast_node *ast_local_def_node(arena *a, const char *name,
-                                ast_node *type,
-                                ast_node *init,
-                                bool is_const) {
+ast_node *ast_local_def_node(arena *a, const char *name, ast_node *type,
+                             ast_node *init, bool is_const) {
     ast_node *node = new_node(a, AST_LOCAL_DEF);
     node->local_def.name = intern(name);
     node->local_def.type = type;
@@ -206,9 +190,8 @@ ast_node *ast_local_def_node(arena *a, const char *name,
     return node;
 }
 
-ast_node *ast_forward_decl_node(arena *a, const char *name,
-                                    ast_node *ret_type,
-                                    ast_node *args) {
+ast_node *ast_forward_decl_node(arena *a, const char *name, ast_node *ret_type,
+                                ast_node *args) {
     ast_node *node = new_node(a, AST_FORWARD_DECL);
     node->forward_decl.name = intern(name);
     node->forward_decl.ret_type = ret_type;
@@ -216,11 +199,9 @@ ast_node *ast_forward_decl_node(arena *a, const char *name,
     return node;
 }
 
-ast_node *ast_function_def_node(arena *a, const char *name,
-                                   ast_node *ret_type,
-                                   ast_node *args,
-                                   ast_node *body,
-                                   bool is_inline) {
+ast_node *ast_function_def_node(arena *a, const char *name, ast_node *ret_type,
+                                ast_node *args, ast_node *body,
+                                bool is_inline) {
     ast_node *node = new_node(a, AST_FUNCTION_DEF);
     node->function_def.name = intern(name);
     node->function_def.ret_type = ret_type;
@@ -247,4 +228,3 @@ ast_node *ast_variable_node(arena *a, const char *name) {
     node->variable.name = intern(name);
     return node;
 }
-

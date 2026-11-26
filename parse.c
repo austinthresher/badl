@@ -1,26 +1,28 @@
 #include "parse.h"
 #include "ast.h"
-#include "tok.h"
-#include "str.h"
 #include "fatal.h"
+#include "str.h"
+#include "tok.h"
 #include <setjmp.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
 static char error_msg[512];
+
 const char *parse_error() { return error_msg; }
 
 static jmp_buf err_jmp_buf;
 
 static void fail(const char *fmt, const char *arg) {
     char linebuf[32];
-    int off = snprintf(linebuf, sizeof(linebuf), "[error] line %d: ", tok_line()+1);
+    int off =
+        snprintf(linebuf, sizeof(linebuf), "[error] line %d: ", tok_line() + 1);
     strncpy(error_msg, linebuf, sizeof(error_msg));
     if (arg == NULL) {
-        strncpy(&error_msg[off], fmt, sizeof(error_msg)-1-off);
+        strncpy(&error_msg[off], fmt, sizeof(error_msg) - 1 - off);
     } else {
-        snprintf(&error_msg[off], sizeof(error_msg)-off, fmt, arg);
+        snprintf(&error_msg[off], sizeof(error_msg) - off, fmt, arg);
     }
     longjmp(err_jmp_buf, 1);
 }
@@ -42,9 +44,7 @@ static ast_node *append(ast_node *dst, ast_node *node) {
 }
 
 static ast_node *parse_literal() {
-    if (tok_maybe(TOK_LITERAL)) {
-        return ast_literal_node(ar, tok_value());
-    }
+    if (tok_maybe(TOK_LITERAL)) { return ast_literal_node(ar, tok_value()); }
     return NULL;
 }
 
@@ -72,9 +72,7 @@ static ast_node *parse_expr(bool is_const) {
 
 static ast_node *parse_type_component() {
     ast_node *count = parse_expr(true);
-    if (count == NULL) {
-        return NULL;
-    }
+    if (count == NULL) { return NULL; }
     tok_expect_ident("a type");
     const char *type_name = intern(tok_identifier());
     const char *label = NULL;
@@ -86,13 +84,9 @@ static ast_node *parse_type_component() {
 }
 
 static ast_node *parse_type_spec() {
-    if (!tok_maybe(TOK_LSQUARE)) {
-        return NULL;
-    }
+    if (!tok_maybe(TOK_LSQUARE)) { return NULL; }
     ast_node *component = parse_type_component();
-    if (component == NULL) {
-        fail("empty or missing type component", NULL);
-    }
+    if (component == NULL) { fail("empty or missing type component", NULL); }
     ast_node *result = ast_type_node(ar, component);
     while ((component = parse_type_component())) {
         result->type.components = append(result->type.components, component);
@@ -111,15 +105,11 @@ static ast_node *parse_type() {
 }
 
 static ast_node *parse_type_definition() {
-    if (!tok_maybe(TOK_TYPE)) {
-        return NULL;
-    }
+    if (!tok_maybe(TOK_TYPE)) { return NULL; }
     tok_expect_ident("a name");
     const char *name = intern(tok_identifier());
     ast_node *type = parse_type();
-    if (type == NULL) {
-        fail("definition for type '%s' is invalid", name);
-    }
+    if (type == NULL) { fail("definition for type '%s' is invalid", name); }
     tok_expect(TOK_SEMI);
     return ast_type_def_node(ar, name, type);
 }
@@ -138,22 +128,16 @@ static ast_node *parse_args() {
         ast_node *arg = parse_arg();
         if (!arg) { return head; }
         head = append(head, arg);
-        if (!tok_maybe(TOK_COMMA)) {
-            return head;
-        }
+        if (!tok_maybe(TOK_COMMA)) { return head; }
     }
 }
 
 static ast_node *parse_return_statement() {
-    if (!tok_maybe(TOK_RETURN)) {
-        return NULL;
-    }
+    if (!tok_maybe(TOK_RETURN)) { return NULL; }
     ast_node *expr = NULL;
     if (!tok_maybe(TOK_SEMI)) {
         expr = parse_expr(false);
-        if (!expr) {
-            fail("expected expression or ';' after 'return'", NULL);
-        }
+        if (!expr) { fail("expected expression or ';' after 'return'", NULL); }
         tok_expect(TOK_SEMI);
     }
     return ast_ret_node(ar, expr);
@@ -227,9 +211,7 @@ static ast_node *parse_var_or_func_def(bool is_global) {
         }
         init_or_args = parse_args();
         tok_expect(TOK_RPAREN);
-        if (is_const) {
-            fail("function '%s' can't be const", name);
-        }
+        if (is_const) { fail("function '%s' can't be const", name); }
         if (tok_maybe(TOK_SEMI)) {
             if (!is_global) {
                 fail("can't forward declare nested function '%s'", name);
@@ -241,7 +223,8 @@ static ast_node *parse_var_or_func_def(bool is_global) {
         }
         ast_node *body = parse_block();
         tok_expect(TOK_END);
-        return ast_function_def_node(ar, name, type, init_or_args, body, is_inline);
+        return ast_function_def_node(ar, name, type, init_or_args, body,
+                                     is_inline);
     }
 
     // Not a function
@@ -285,9 +268,6 @@ void ast_init_parser(arena *a) {
 ast_node *parse_from_string(arena *a, const char *text) {
     tok_from_string(text);
     ast_init_parser(a);
-    if (setjmp(err_jmp_buf)) {
-        return NULL;
-    }
+    if (setjmp(err_jmp_buf)) { return NULL; }
     return parse_top_level();
 }
-
