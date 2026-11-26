@@ -128,6 +128,19 @@ static void ast_sexp_recur(ast_node *root) {
         SPRINT(")");
         break;
 
+    case AST_RET:
+        SPRINT("(return");
+        if (root->ret.expr != NULL) {
+            SPRINT(" ");
+            ast_sexp_recur(root->ret.expr);
+        }
+        SPRINT(")");
+        break;
+
+    case AST_VARIABLE:
+        SPRINT("(var %s)", root->variable.name);
+        break;
+
     default:
         SPRINT("?");
         break;
@@ -257,9 +270,30 @@ static ast_node *block_node(ast_node *statements) {
     return node;
 }
 
+static ast_node *ret_node(ast_node *expr) {
+    ast_node *node = new_node(AST_RET);
+    node->ret.expr = expr;
+    return node;
+}
+
+static ast_node *variable_node(const char *name) {
+    ast_node *node = new_node(AST_VARIABLE);
+    node->variable.name = intern(name);
+    return node;
+}
+
+// Parsing
+
 static ast_node *parse_literal() {
     if (tok_maybe(TOK_LITERAL)) {
         return literal_node(tok_value());
+    }
+    return NULL;
+}
+
+static ast_node *parse_variable() {
+    if (tok_maybe(TOK_IDENT)) {
+        return variable_node(tok_identifier());
     }
     return NULL;
 }
@@ -269,6 +303,12 @@ static ast_node *parse_expr(bool is_const) {
 
     ast_node *result = parse_literal();
     if (result) { return result; }
+    // fixme: if we're const we need to check if the variable is const too,
+    // disallowing variables for const until the symtab is in
+    if (!is_const) {
+        result = parse_variable();
+        if (result) { return result; }
+    }
 
     return NULL;
 }
@@ -306,7 +346,8 @@ static ast_node *parse_type_spec() {
 
 static ast_node *parse_type() {
     if (tok_maybe(TOK_IDENT)) {
-        // we'll actually need to check the symtab at some point
+        // fixme: assignment statements are unparseable until we check the
+        // symtab here to see if the identifier is actually a type
         return named_type_node(intern(tok_identifier()));
     }
     return parse_type_spec();
@@ -346,15 +387,31 @@ static ast_node *parse_args() {
     }
 }
 
+static ast_node *parse_return_statement() {
+    if (!tok_maybe(TOK_RETURN)) {
+        return NULL;
+    }
+    ast_node *expr = NULL;
+    if (!tok_maybe(TOK_SEMI)) {
+        expr = parse_expr(false);
+        if (!expr) {
+            fail("expected expression or ';' after 'return'", NULL);
+        }
+        tok_expect(TOK_SEMI);
+    }
+    return ret_node(expr);
+}
+
 static ast_node *parse_var_or_func_def(bool is_global);
 
 static ast_node *parse_statement() {
     ast_node *stmt = parse_var_or_func_def(false);
     if (stmt) { return stmt; }
+    stmt = parse_return_statement();
+    if (stmt) { return stmt; }
     // todo:
     // while
     // if
-    // return
     // goto
     // break
     // continue

@@ -5,59 +5,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/*
-Drafting out what AST nodes we'll need and what they'll have:
-
-(literal n)
-(binary-expr x y)
-(unary-expr x)
-(cast expr type)
-
-Variable definitions
-
-(global name type [constant-expr])
-(local name type [expr])
-(const-global name type [constant-expr])
-(const-local name type [expr])
-
-(args (arg-name arg-type)*)
-(function-decl name return-type args)
-(function name return-type args body)
-(inline-function name return-type args body)
-
-(component n
-    bit|pad|align|name
-    | (type components))
-(components component+)
-(type components)
-(typedef name type)
-
-Flow control
-
-(while condition body)
-(label name)
-(goto label-name)
-(dispatch label-prefix expr)
-
-"elif" is converted to a nested "if" node, and "else" goes in the
-false-branch of the last
-
-(if condition true-branch [false-branch])
-
-(block statement*)
-(statement
-    assignment-expr
-    | while
-    | label
-    | goto
-    | dispatch
-    | if
-    | local
-    | const-local
-    | inline-function)
-
-*/
-
 enum node_type {
     AST_TYPE,
     AST_NAMED_TYPE,
@@ -71,6 +18,8 @@ enum node_type {
     AST_BLOCK,
     AST_BREAK,
     AST_CONTINUE,
+    AST_RET,
+    AST_VARIABLE,
 };
 
 typedef struct ast_node {
@@ -133,6 +82,13 @@ typedef struct ast_node {
 
         // AST_BREAK and AST_CONTINUE don't need any fields
 
+        struct { // AST_RET
+            struct ast_node *expr;
+        } ret;
+
+        struct { // AST_VARIABLE
+            const char *name;
+        } variable;
 
     };
 
