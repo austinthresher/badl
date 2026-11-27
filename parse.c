@@ -2,8 +2,8 @@
 #include "ast.h"
 #include "fatal.h"
 #include "str.h"
-#include "tok.h"
 #include "symtab.h"
+#include "tok.h"
 #include <setjmp.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -58,9 +58,7 @@ static void check_variable(const char *name, bool require_const) {
         } else {
             is_const = e->def->local_def.is_const;
         }
-        if (!is_const) {
-            fail("'%s' is required to be const", name);
-        }
+        if (!is_const) { fail("'%s' is required to be const", name); }
     }
 }
 
@@ -145,11 +143,14 @@ static ast_node *parse_type_definition() {
 }
 
 static ast_node *parse_arg() {
+    int line = tok_line();
     ast_node *type = parse_type();
     if (type == NULL) { return NULL; }
     tok_expect_ident("an argument name");
     const char *name = intern(tok_identifier());
-    return ast_local_def_node(ar, name, type, NULL, false);
+    ast_node *def = ast_local_def_node(ar, name, type, NULL, false);
+    symtab_add(name, def, line);
+    return def;
 }
 
 static ast_node *parse_args() {
@@ -192,15 +193,15 @@ static ast_node *parse_statement() {
 }
 
 // Just collect statements until we can't; doesn't check for `end` or anything
-static ast_node *parse_block() {
+static ast_node *parse_block(bool new_scope) {
     ast_node *b = ast_block_node(ar, NULL);
-    symtab_enter();
+    if (new_scope) { symtab_enter(); }
     while (1) {
         ast_node *stmt = parse_statement();
         if (!stmt) { return b; }
         b->block.statements = append(b->block.statements, stmt);
     }
-    symtab_exit();
+    if (new_scope) { symtab_exit(); }
 }
 
 // This is pretty long but I'm not sure how else we can hold off on committing
@@ -246,46 +247,40 @@ static ast_node *parse_var_or_func_def(bool is_global) {
         if (!is_global && !is_inline) {
             fail("nested function '%s' must be inline", name);
         }
+        // This needs to go in the containing scope, but we have to enter a new
+        // scope for the arguments before we can finish building the AST node
+        symtab_add(name, NULL, line);
+        symtab_entry *entry = symtab_find(name);
+        symtab_enter();
         init_or_args = parse_args();
         tok_expect(TOK_RPAREN);
         if (is_const) { fail("function '%s' can't be const", name); }
-        if (tok_maybe(TOK_SEMI)) {
+        if (symtab_find_current(name)) { fail("redefinition of '%s'", name); }
+        // Always place a forward declaration so recursive references find the
+        // entry before the full node has been built
+        entry->def = ast_forward_decl_node(ar, name, type, init_or_args);
+        if (tok_maybe(TOK_SEMI)) { // It's actually a forward declaration
             if (!is_global) {
                 fail("can't forward declare nested function '%s'", name);
             }
             if (is_inline) {
                 fail("can't forward declare inline function '%s'", name);
             }
-            if (symtab_find_current(name)) {
-                fail("redefinition of '%s'", name);
-            }
-            ast_node *d = ast_forward_decl_node(ar, name, type, init_or_args);
-            symtab_add(name, d, line);
-            return d;
+            return entry->def;
         }
-        ast_node *body = parse_block();
+        ast_node *body = parse_block(false);
         tok_expect(TOK_END);
+        symtab_exit();
         tok_maybe(TOK_SEMI); // harmless
-        ast_node *d = ast_function_def_node(ar, name, type, init_or_args, body,
-                                     is_inline);
-        // If this function was forward-declared, update the symtab entry
-        symtab_entry *e = symtab_find(name);
-        if (e && e->def && e->def->ast_type == AST_FORWARD_DECL) {
-            // todo: make sure actual type/args match the forward declaration
-            e->def = d;
-        } else if (symtab_find_current(name)) {
-            fail("redefinition of '%s'", name);
-        } else {
-            symtab_add(name, d, line);
-        }
-        return d;
+        // update the symtab entry with the real function
+        entry->def = ast_function_def_node(ar, name, type, init_or_args, body,
+                                           is_inline);
+        return entry->def;
     }
 
     // Not a function
     tok_expect(TOK_SEMI);
-    if (symtab_find_current(name)) {
-        fail("redefinition of '%s'", name);
-    }
+    if (symtab_find_current(name)) { fail("redefinition of '%s'", name); }
     ast_node *var;
     if (is_global) {
         var = ast_global_def_node(ar, name, type, init_or_args, is_const);

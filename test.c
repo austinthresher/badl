@@ -121,8 +121,6 @@ void run_tests() {
     test("void const foo() end", NULL);
     test("void inline foo() end", NULL);
     test("void end() end", NULL);
-    test("void foo() inline void foo() end end", NULL);
-    test("void foo() bit foo; end", NULL);
     test("bit foo; void foo() end", NULL);
     test("type foo [1 bit]; void foo() end", NULL);
     test("void foo() end type foo [1 bit]; ", NULL);
@@ -150,6 +148,14 @@ void run_tests() {
     test("inline void foo() inline void bar() end end",
         "(func foo inline (typename void) () (block"
         " (func bar inline (typename void) () (block ()))))");
+
+    test("void foo() inline void foo() end end",
+        "(func foo (typename void) () (block"
+        " (func foo inline (typename void) () (block ()))))");
+
+    test("void foo() bit foo; end",
+        "(func foo (typename void) () (block"
+        " (local foo (typename bit))))");
 
     test("bit bar; void foo() [2 bit] bar; end",
         "(global bar (typename bit))"
